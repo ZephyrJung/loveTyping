@@ -931,7 +931,8 @@ local explosionParticles = {}
 
 love.load = function()
     love.window.setTitle("loveTyping -- Typing Practice")
-    love.graphics.setNewFont(16, "monospace")
+    local baseFont = love.graphics.newFont(16)
+    love.graphics.setFont(baseFont)
     love.window.setMode(960, 700, {fullscreen = false})
        -- Start at the menu state
     changeState("menu")
