@@ -1,15 +1,15 @@
--- loveTyping -- A Love2D typing practice application
--- Features multiple difficulty levels with glowing sphere letter displays
--- and explosion effects on key press.
+-- loveTyping -- A Love2D typing practice application.
+-- Displays difficulty levels via a glowing menu, with Level 1 showing
+-- A-Z as pulsating spheres in QWERTY layout that explode on key press.
 
 --------------------------------------------------------------------------------
--- Utility helpers
+-- Helpers: math utilities and shared constants
 --------------------------------------------------------------------------------
 
---- Returns the absolute value of a number.
+--- Returns the absolute value of n.
 local function abs(n) return n < 0 and -n or n end
 
---- Linear interpolation between two values, clamping t to [0, 1].
+--- Linear interpolation between a and b, clamping t to [0, 1].
 local function lerp(a, b, t)
     return a + (b - a) * math.min(math.max(t, 0), 1)
 end
@@ -18,10 +18,11 @@ end
 -- Particle system: explosion particles rendered on top of everything.
 --------------------------------------------------------------------------------
 
+--- A single particle in an explosion effect.
 local Particle = {}
 Particle.__index = Particle
 
-function Particle:new(x, y, vx, vy, life, color)
+function Particle:new(x, y, vx, vy, life, r, g, b, size)
     local p = setmetatable({}, self)
     p.x = x
     p.y = y
@@ -29,8 +30,10 @@ function Particle:new(x, y, vx, vy, life, color)
     p.vy = vy or 0
     p.life = life or 1.0
     p.maxLife = p.life
-    p.color = color or {1, 1, 1, 1}
-    p.size = math.random(2, 5)
+    p.r = r or 1
+    p.g = g or 1
+    p.b = b or 1
+    p.size = size or math.random(2, 5)
     return p
 end
 
@@ -44,48 +47,48 @@ end
 function Particle:draw()
     if self.life <= 0 then return end
     local alpha = math.min(self.life / self.maxLife, 1)
-    local c = self.color
-    love.graphics.setColor(c[1], c[2], c[3], c[4] * alpha)
+    love.graphics.setColor(self.r, self.g, self.b, alpha)
     love.graphics.circle("fill", self.x, self.y, self.size * alpha)
 end
 
 function Particle:isDead() return self.life <= 0 end
 
---- Creates an explosion of particles at the given position.
-local function createExplosion(x, y, color, count)
+--- Creates a burst of explosion particles at (x, y).
+local function createExplosion(x, y, r, g, b, count)
     local particles = {}
     for i = 1, (count or 40) do
         local angle = math.random() * math.pi * 2
         local speed = math.random(60, 350)
         local life = math.random(4, 12) / 10
-        local vx = math.cos(angle) * speed
-        local vy = math.sin(angle) * speed - 80
-        table.insert(particles, Particle:new(x, y, vx, vy, life, color))
+        table.insert(particles, Particle:new(x, y,
+            math.cos(angle) * speed,
+            math.sin(angle) * speed - 80,
+            life, r or 1, g or 1, b or 1))
     end
     return particles
 end
 
 --------------------------------------------------------------------------------
--- Letter sphere: draws a letter as a glowing sphere on screen.
+-- Sphere class: draws a letter as a glowing sphere with 3D shading.
 --------------------------------------------------------------------------------
 
 local Sphere = {}
 Sphere.__index = Sphere
 
+--- Create a new sphere displaying the given letter at screen position (x, y).
 function Sphere:new(letter, x, y)
     local s = setmetatable({}, self)
     s.letter = letter
     s.x = x
     s.y = y
-    s.radius = 28
-    s.glowRadius = 42
+    s.radius = 26
+    s.glowRadius = 40
     s.pulsePhase = math.random() * math.pi * 2
     s.opacity = 1
     s.scale = 1
     s.alive = true
 
-       -- Map letter index A(0) to Y(25) into a hue angle for coloring each sphere.
-       -- Uses HSL-to-RGB conversion.
+        -- Map letter A(0)..Y(25) into an HSL hue angle for unique coloring.
     local hueFrac = (string.byte(letter) - string.byte('A')) / 25
     local hDeg = hueFrac * 360
     local sat, lit = 0.75, 0.55
@@ -108,77 +111,76 @@ function Sphere:update(dt)
     self.pulsePhase = self.pulsePhase + dt * 2.5
 end
 
---- Draw the sphere: outer glow ring, gradient fill with 3D shading, and label.
+--- Draw the sphere: outer glow, 3D gradient fill with specular highlight, and label.
 function Sphere:draw()
     if not self.alive then return end
     local pulse = math.sin(self.pulsePhase) * 0.15 + 1
-    local gr = self.glowRadius * pulse
     local gc = self.glowColor
 
-       -- Outer glow ring (colored aura spreading outward)
-    love.graphics.setColor(gc[1] * 0.5, gc[2] * 0.5, gc[3] * 0.5, 0.12 * self.opacity)
-    love.graphics.circle("fill", self.x, self.y, gr + 15)
-    love.graphics.setColor(gc[1] * 0.7, gc[2] * 0.7, gc[3] * 0.7, 0.25 * self.opacity)
-    love.graphics.circle("fill", self.x, self.y, gr)
+        -- Outer glow aura (two layers for soft falloff)
+    love.graphics.setColor(gc[1] * 0.5, gc[2] * 0.5, gc[3] * 0.5, 0.10 * self.opacity)
+    love.graphics.circle("fill", self.x, self.y, self.glowRadius * pulse + 18)
+    love.graphics.setColor(gc[1] * 0.6, gc[2] * 0.6, gc[3] * 0.6, 0.20 * self.opacity)
+    love.graphics.circle("fill", self.x, self.y, self.glowRadius * pulse)
 
-       -- Sphere body with 3D shading: darker bottom-left offset for depth feel
+        -- Sphere body with 3D shading (offset shadow for depth)
     local sr = self.radius * pulse
-    love.graphics.setColor(0.15, 0.15, 0.25, self.opacity)
+    love.graphics.setColor(0.12, 0.12, 0.22, self.opacity)
     love.graphics.circle("fill", self.x + 3, self.y + 3, sr)
 
-       -- Main fill (lighter top-left for gradient feel)
+        -- Main fill (lighter top-left for gradient feel)
     local bright = self.glowColor[1] * 0.4 + 0.15
     local bgCol = self.glowColor[2] * 0.4 + 0.15
     local bb = self.glowColor[3] * 0.4 + 0.15
     love.graphics.setColor(bright, bgCol, bb, self.opacity)
     love.graphics.circle("fill", self.x - sr * 0.12, self.y - sr * 0.15, sr * 0.92)
 
-       -- Highlight (top-left specular reflection dot)
+        -- Specular highlight dot (top-left of sphere)
     local hlR = sr * 0.35
     love.graphics.setColor(1, 1, 1, 0.45 * self.opacity)
-    love.graphics.circle("fill", self.x - sr * 0.25, self.y - sr * 0.3, hlR)
+    love.graphics.circle("fill", self.x - sr * 0.28, self.y - sr * 0.32, hlR)
 
-       -- Border ring
-    love.graphics.setLineWidth(2)
-    love.graphics.setColor(gc[1], gc[2], gc[3], 0.6 * self.opacity)
+        -- Colored border ring
+    love.graphics.setLineWidth(1.5)
+    love.graphics.setColor(gc[1] * 0.7, gc[2] * 0.7, gc[3] * 0.7, 0.50 * self.opacity)
     love.graphics.circle("line", self.x, self.y, sr)
     love.graphics.setLineWidth(1)
 
-       -- Letter label centered on the sphere with shadow for readability
-    local fontSize = math.floor(sr * 1.1)
+        -- Letter label with drop shadow for readability
+    local fontSize = math.floor(sr * 1.0)
     local font = love.graphics.newFont(fontSize)
     love.graphics.setFont(font)
-    love.graphics.setColor(0, 0, 0, self.opacity * 0.5)
-    love.graphics.printf(self.letter, self.x - sr, self.y - fontSize * 0.4,
-                         sr * 2, "center")
+    love.graphics.setColor(0, 0, 0, self.opacity * 0.45)
+    love.graphics.printf(self.letter, self.x - sr, self.y - fontSize * 0.35,
+                         sr * 2, "center", 0, 1, 1)
     love.graphics.setColor(1, 1, 1, self.opacity)
-    love.graphics.printf(self.letter, self.x - sr + 1, self.y - fontSize * 0.4 + 1,
-                         sr * 2, "center")
+    love.graphics.printf(self.letter, self.x - sr + 1, self.y - fontSize * 0.35 + 1,
+                         sr * 2, "center", 0, 1, 1)
 end
 
 --------------------------------------------------------------------------------
--- Keyboard layout: rows of letters in physical keyboard order (QWERTY).
--- Returns a table of {letter, x, y} with positions relative to center.
+-- Keyboard layout: letters in QWERTY order with slight arc curve.
+-- Returns table of {letter, x, y} where x/y are absolute screen positions.
 --------------------------------------------------------------------------------
 
 local function getKeyboardLayout(cx, cy)
     local layout = {}
     local rows = {
-           {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
-           {"A", "S", "D", "F", "G", "H", "J", "K", "L"},
-           {"Z", "X", "C", "V", "B", "N", "M"}
-      }
-    local spacingY = 95
+            {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
+            {"A", "S", "D", "F", "G", "H", "J", "K", "L"},
+            {"Z", "X", "C", "V", "B", "N", "M"}
+       }
+    local spacingY = 90
 
     for i, row in ipairs(rows) do
-        local rowsY = cy + (i - 1) * spacingY - 95
+        local rowsY = cy + (i - 1) * spacingY - 90
         local colsInRow = #row
         for j, letter in ipairs(row) do
-               -- Distribute letters evenly with slight inward curve at edges
-            local colX = cx + (j - (colsInRow + 1) / 2) * 66
+                -- Distribute evenly with slight inward arc at edges
+            local colX = cx + (j - (colsInRow + 1) / 2) * 64
             local arcAmt = math.abs(j - (colsInRow + 1) / 2)
-                 / ((colsInRow + 1) / 2)
-            colX = colX - arcAmt * 8
+                    / ((colsInRow + 1) / 2)
+            colX = colX - arcAmt * 6
 
             table.insert(layout, {letter = letter, x = colX, y = rowsY})
         end
@@ -187,13 +189,13 @@ local function getKeyboardLayout(cx, cy)
 end
 
 --------------------------------------------------------------------------------
--- State machine runner: manages transitions between game screens.
+-- State machine: manages transitions between game screens.
 --------------------------------------------------------------------------------
 
-local states = {} -- name -> state object
+local states = {} -- name -> state object with update/draw methods
 local currentStateName = nil
 
---- Switch to a named state; calls onExit of the old and onEnter of the new.
+--- Switch to a named state; calls onExit of old and onEnter of new.
 local function changeState(name)
     if states[currentStateName] and states[currentStateName].onExit then
         states[currentStateName]:onExit()
@@ -205,68 +207,82 @@ local function changeState(name)
 end
 
 --------------------------------------------------------------------------------
--- LEVEL MENU: displays difficulty buttons with glow on hover.
+-- Global particle pool: updated each frame, drawn on top of everything.
+--------------------------------------------------------------------------------
+
+local explosionParticles = {}
+
+--- Add a batch of particles to the global pool.
+local function addExplosion(x, y, r, g, b, count)
+    for _, p in ipairs(createExplosion(x, y, r, g, b, count)) do
+        table.insert(explosionParticles, p)
+    end
+end
+
+--------------------------------------------------------------------------------
+-- MENU STATE: glowing buttons for each difficulty level.
 --------------------------------------------------------------------------------
 
 states["menu"] = {
-       -- Level definitions displayed as clickable buttons
-    levels = {
-           {id = 1, name = "\xe5\x85\xa5\xe9\x97\xa8", desc = "Letter spheres in keyboard order, press to explode"},
-           {id = 2, name = "\xe5\x9f\xba\xe7\xa1\x80", desc = "Type words as they are prompted"},
-           {id = 3, name = "\xe8\xbf\x9b\xe9\x98\xb6", desc = "Timed typing challenge, beat the clock"},
-      },
-
-       -- Entrance flash animation (white fade-out on level entry)
     flashAlpha = 0,
-    flashTimer = 1.5,
+    flashTimer = 1.2,
+    hoverIdx = -1, -- track which button is hovered (for keyboard nav)
 
     onEnter = function(self)
-           -- Create button rects for each level
         local w, h = love.graphics.getWidth(), love.graphics.getHeight()
         self.buttons = {}
-        local bw, bh = math.min(w * 0.4, 320), 76
-        local startY = 260
-        for i = 1, #self.levels do
-            table.insert(self.buttons, {
-                x = (w - bw) / 2,
-                y = startY + (i - 1) * (bh + 32),
-                w = bw, h = bh,
-                levelId = self.levels[i].id,
-              })
+        local bw, bh = math.min(w * 0.45, 300), 68
+        local startY = 280
+            -- Build button rects for each level
+        for i = 1, 3 do
+            table.insert(self.buttons, {x = (w - bw) / 2, y = startY + (i - 1) * (bh + 36),
+                                          w = bw, h = bh, id = i})
         end
     end,
 
     onUpdate = function(self, dt)
-           -- Fade entrance flash
+            -- Fade entrance flash
         self.flashTimer = self.flashTimer - dt
         if self.flashTimer > 0 then
-            self.flashAlpha = math.min(self.flashTimer / 0.5, 1) * 0.3
+            self.flashAlpha = math.min(self.flashTimer / 0.4, 1) * 0.25
         end
 
-           -- Detect mouse hover on buttons
+            -- Mouse hover detection on buttons
         local mx, my = love.mouse.getPosition()
-        for _, btn in ipairs(self.buttons) do
-            btn.hover = (mx >= btn.x and mx <= btn.x + btn.w and
-                         my >= btn.y and my <= btn.y + btn.h)
+        self.hoverIdx = -1
+        for i, btn in ipairs(self.buttons) do
+            if (mx >= btn.x and mx <= btn.x + btn.w and
+                my >= btn.y and my <= btn.y + btn.h) then
+                self.hoverIdx = i
+            end
         end
 
-           -- Handle button click
+            -- Handle mouse click on buttons
         if love.mouse.justPressed(1) then
-            for _, btn in ipairs(self.buttons) do
-                local mx2, my2 = love.mouse.getPosition()
-                if (mx2 >= btn.x and mx2 <= btn.x + btn.w and
-                     my2 >= btn.y and my2 <= btn.y + btn.h) then
-                    changeState("level" .. tostring(btn.levelId))
+            for i, btn in ipairs(self.buttons) do
+                local mmx, mmy = love.mouse.getPosition()
+                if (mmx >= btn.x and mmx <= btn.x + btn.w and
+                    mmy >= btn.y and mmy <= btn.y + btn.h) then
+                    changeState("level" .. tostring(btn.id))
                     return
                 end
             end
+        end
+
+            -- Keyboard navigation for buttons (1/2/3 keys)
+        if love.keyboard.isDown("1", "2", "3") then
+            local key = nil
+            if love.keyboard.isDown("1") then key = 1
+            elseif love.keyboard.isDown("2") then key = 2
+            else key = 3 end
+            changeState("level" .. tostring(key))
         end
     end,
 
     onDraw = function(self)
         local w, h = love.graphics.getWidth(), love.graphics.getHeight()
 
-           -- Background gradient (dark blue-purple)
+            -- Background gradient (dark blue-purple)
         for y = 1, h do
             local t = y / h
             love.graphics.setColor(lerp(0.03, 0.06, t),
@@ -275,124 +291,142 @@ states["menu"] = {
             love.graphics.rectangle("fill", 0, y, w, 1)
         end
 
-           -- Entrance flash overlay
+            -- Entrance flash overlay
         if self.flashAlpha > 0 then
             love.graphics.setColor(1, 1, 1, self.flashAlpha)
             love.graphics.rectangle("fill", 0, 0, w, h)
         end
 
-           -- Title: "loveTyping" in large white text
-        local titleFont = love.graphics.newFont(52)
+            -- Title: "loveTyping" in large white text
+        local titleFont = love.graphics.newFont(48)
         love.graphics.setFont(titleFont)
         love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.printf("loveTyping", w / 2, 90, w * 0.7, "center")
+        love.graphics.printf("loveTyping", w / 2, 80, w * 0.7, "center")
 
-           -- Subtitle in Chinese
-        local subFont = love.graphics.newFont(16)
+            -- Subtitle
+        local subFont = love.graphics.newFont(14)
         love.graphics.setFont(subFont)
-        love.graphics.setColor(0.55, 0.70, 0.90, 0.8)
-        love.graphics.printf("Select Difficulty Level", w / 2, 150, w * 0.5, "center")
+        love.graphics.setColor(0.50, 0.65, 0.85, 0.7)
+        love.graphics.printf("Select Difficulty Level", w / 2, 140, w * 0.5, "center")
 
-           -- Draw level buttons with hover glow effect
+            -- Draw level buttons with glow on hover
         for i, btn in ipairs(self.buttons) do
-            local lvl = self.levels[i]
-            local c = btn.hover and {0.3, 0.4, 0.7} or {0.15, 0.2, 0.35}
+            local id = btn.id
+            local names = {"Intro", "Words", "Timed"}
+            local descs = {"A-Z letters as glowing spheres",
+                           "Type words as prompted",
+                           "Beat the clock challenge"}
+            local c = (self.hoverIdx == i) and {0.3, 0.4, 0.7} or {0.12, 0.16, 0.30}
 
-               -- Button glow (on hover)
-            if btn.hover then
-                love.graphics.setColor(c[1] * 1.8, c[2] * 1.8, c[3] * 1.8, 0.25)
+                -- Glow effect on hover
+            if self.hoverIdx == i then
+                love.graphics.setColor(c[1] * 1.8, c[2] * 1.8, c[3] * 1.8, 0.20)
                 love.graphics.rectangle("fill", btn.x - 4, btn.y - 4,
                                          btn.w + 8, btn.h + 8, 14)
             end
 
-               -- Button background (rounded rect)
+                -- Button background
             love.graphics.setColor(c[1], c[2], c[3], 0.95)
             love.graphics.rectangle("round", btn.x, btn.y, btn.w, btn.h, 10)
 
-               -- Button border (brighter on hover)
+                -- Button border (brighter on hover)
             love.graphics.setLineWidth(2)
-            local bc = btn.hover and {0.6, 0.8, 1} or {0.35, 0.45, 0.65}
+            local bc = (self.hoverIdx == i) and {0.6, 0.8, 1} or {0.35, 0.45, 0.65}
             love.graphics.setColor(bc[1], bc[2], bc[3])
             love.graphics.rectangle("round", btn.x, btn.y, btn.w, btn.h, 10)
             love.graphics.setLineWidth(1)
 
-               -- Button text (Chinese name + English label)
+                -- Button text (level name + number hint)
             local txtFont = love.graphics.newFont(20)
             love.graphics.setFont(txtFont)
-            local tc = btn.hover and {1, 1, 1} or {0.85, 0.87, 0.9}
+            local tc = (self.hoverIdx == i) and {1, 1, 1} or {0.80, 0.82, 0.90}
             love.graphics.setColor(tc[1], tc[2], tc[3])
-            love.graphics.printf(lvl.name .. "   Level " .. tostring(lvl.id),
-                                 btn.x + btn.w / 2, btn.y + btn.h / 2 - 6,
-                                 btn.w - 24, "center")
+            love.graphics.printf(names[id] .. "   [1-" .. tostring(id) .. "]",
+                                 btn.x + btn.w / 2, btn.y + btn.h / 2 - 4,
+                                 btn.w - 20, "center")
 
-               -- Description text below button
-            local descFont = love.graphics.newFont(13)
+                -- Description below button
+            local descFont = love.graphics.newFont(12)
             love.graphics.setFont(descFont)
-            love.graphics.setColor(0.45, 0.50, 0.60, 0.75)
-            love.graphics.printf(lvl.desc, w / 2, btn.y + btn.h + 10,
+            love.graphics.setColor(0.45, 0.50, 0.60, 0.70)
+            love.graphics.printf(descs[id], w / 2, btn.y + btn.h + 8,
                                  btn.w, "center")
         end
 
-           -- Footer hint
+            -- Footer hint with keyboard shortcut
         local hintFont = love.graphics.newFont(13)
         love.graphics.setFont(hintFont)
-        love.graphics.setColor(0.3, 0.35, 0.42, 0.5)
-        love.graphics.printf("Click a button or press Esc", w / 2, h - 40, w * 0.4, "center")
+        love.graphics.setColor(0.35, 0.40, 0.50, 0.55)
+        love.graphics.printf("Press [1] [2] or [3] to quick-select", w / 2, h - 38, w * 0.45, "center")
     end,
 
-    onKeyReleased = function(self, key)
-           -- Menu is the top-level state; Esc has no effect here
-        if key == "escape" then return end
-    end,
+    onKeyReleased = function() end, -- menu ignores key input here
 }
 
 --------------------------------------------------------------------------------
--- LEVEL 1: INTRO -- A-Z letters as glowing spheres in keyboard layout.
--- Pressing a letter triggers an explosion effect at that sphere's position.
+-- LEVEL 1: INTRO -- A-Z spheres in QWERTY layout, explode on press.
 --------------------------------------------------------------------------------
 
 states["level1"] = {
-    levelLabel = "Level 1 -- Intro",
     flashAlpha = 0,
-    instructionsTimer = 4,
+    instructionsTimer = 5,
     showInstructions = true,
     scoredLetters = {}, -- tracks exploded letters: {"A": timer}
     totalExplosions = 0,
+    hintTimer = 3,      -- display "press Esc" hint after all letters done
+    restartHint = false,
 
     onEnter = function(self)
-        local w = love.graphics.getWidth()
-        local h = love.graphics.getHeight()
-           -- Get sphere positions for keyboard layout (centered on screen)
-        self.layout = getKeyboardLayout(w / 2, h / 2 + 30)
+        local w, h = love.graphics.getWidth(), love.graphics.getHeight()
+            -- Get sphere positions for keyboard layout (centered on screen)
+        self.layout = getKeyboardLayout(w / 2, h / 2 + 10)
 
-           -- Create spheres at each position
+            -- Create a sphere at each position
         self.spheres = {}
         for _, entry in ipairs(self.layout) do
-            table.insert(self.spheres, Sphere:new(entry.letter,
-                                                  entry.x, entry.y))
+            table.insert(self.spheres, Sphere:new(entry.letter, entry.x, entry.y))
         end
     end,
 
     onUpdate = function(self, dt)
-           -- Fade entrance flash
+            -- Fade entrance flash
         self.flashAlpha = math.max(0, self.flashAlpha - dt * 2)
 
-           -- Instructions fade out after ~4 seconds
+            -- Instructions fade out after ~5 seconds
         self.instructionsTimer = self.instructionsTimer - dt
         if self.instructionsTimer <= 0 then
             self.showInstructions = false
         end
 
-           -- Update all spheres for pulsing glow animation
+            -- Update all spheres for pulsing glow animation
         for _, s in ipairs(self.spheres) do
             s:update(dt)
+                -- Fade out exploded spheres
+            if self.scoredLetters[s.letter] then
+                self.scoredLetters[s.letter] = self.scoredLetters[s.letter] + dt
+            end
+        end
+
+            -- Show restart hint after all letters are done
+        local allDone = true
+        for _, s in ipairs(self.spheres) do
+            if not self.scoredLetters[s.letter] then allDone = false; break end
+        end
+        if allDone and not self.restartHint then
+            self.hintTimer = 5 -- show "press any key" hint
+            self.restartHint = true
+        end
+
+            -- Check for any-letter press to restart level
+        if self.restartHint and self.hintTimer > 0 then
+            -- Any key restarts (handled via a small delay)
         end
     end,
 
     onDraw = function(self)
         local w, h = love.graphics.getWidth(), love.graphics.getHeight()
 
-           -- Background gradient (dark blue-purple)
+            -- Background gradient (dark blue-purple)
         for y = 1, h do
             local t = y / h
             love.graphics.setColor(lerp(0.03, 0.05, t),
@@ -401,28 +435,27 @@ states["level1"] = {
             love.graphics.rectangle("fill", 0, y, w, 1)
         end
 
-           -- Title bar with level name and back hint
-        love.graphics.setFont(love.graphics.newFont(15))
+            -- Title bar
+        love.graphics.setFont(love.graphics.newFont(14))
         love.graphics.setColor(0.35, 0.42, 0.55, 0.6)
-        love.graphics.printf(self.levelLabel .. "     Press Esc to go back",
-                             w / 2, 28, w * 0.5, "center")
+        love.graphics.printf("Level 1 -- Intro     Press Esc to go back",
+                             w / 2, 28, w * 0.9, "center")
 
-           -- Instructions overlay (fades out after ~4s)
+            -- Instructions overlay (fades out after ~5s)
         if self.showInstructions then
             local instrAlpha = math.min(self.instructionsTimer / 1.5, 1)
-            love.graphics.setFont(love.graphics.newFont(22))
-            love.graphics.setColor(0.65, 0.78, 0.93, instrAlpha * 0.9)
-            love.graphics.printf("Press keyboard letters to explode the spheres!",
-                w / 2, 58, w * 0.75, "center")
+            love.graphics.setFont(love.graphics.newFont(20))
+            love.graphics.setColor(0.60, 0.75, 0.90, instrAlpha * 0.85)
+            love.graphics.printf("Press the keyboard letters to explode the spheres!",
+                                 w / 2, 55, w * 0.85, "center")
         end
 
-           -- Draw all spheres at their layout positions
+            -- Draw all spheres at their layout positions (with fade-out for exploded ones)
         for _, s in ipairs(self.spheres) do
-               -- Dim sphere after it has been exploded (fade-out over ~1s)
             if self.scoredLetters[s.letter] then
-                local progress = math.min(self.scoredLetters[s.letter], 1)
-                s.opacity = lerp(0.2, 1, progress)
-                s.scale = lerp(0.5, 1, progress)
+                local elapsed = math.min(self.scoredLetters[s.letter], 1.0)
+                s.opacity = lerp(0.15, 1, 1 - elapsed)
+                s.scale = lerp(0.4, 1, 1 - elapsed)
             else
                 s.opacity = 1
                 s.scale = 1
@@ -430,95 +463,114 @@ states["level1"] = {
             s:draw()
         end
 
-           -- Flash overlay on level entry
+            -- Flash overlay on level entry (white flash that fades)
         if self.flashAlpha > 0 then
             love.graphics.setColor(1, 1, 1, self.flashAlpha * 0.2)
             love.graphics.rectangle("fill", 0, 0, w, h)
         end
 
-           -- Stats: count of remaining unpressed letters
-        if self.totalExplosions > 0 then
-            local remaining = #self.spheres - self.totalExplosions
-            love.graphics.setFont(love.graphics.newFont(17))
-            love.graphics.setColor(0.45, 0.60, 0.80, 0.7)
+            -- Stats display: count of remaining vs total letters
+        local allDone = true
+        local remaining = 0
+        for _, s in ipairs(self.spheres) do
+            if not self.scoredLetters[s.letter] then
+                remaining = remaining + 1
+                allDone = false
+            end
+        end
+
+        if allDone and self.hintTimer > 0 then
+                -- All letters exploded: show restart hint
+            local hintAlpha = math.sin(love.timer.getTime() * 3) * 0.25 + 0.45
+            love.graphics.setFont(love.graphics.newFont(18))
+            love.graphics.setColor(0.50, 0.65, 0.80, hintAlpha)
+            love.graphics.printf("Press any key to restart the level", w / 2, h - 35, w * 0.5, "center")
+            self.hintTimer = self.hintTimer - (love.timer.getDelta() or 0.016)
+        elseif self.totalExplosions > 0 then
+                -- Show progress counter
+            love.graphics.setFont(love.graphics.newFont(16))
+            love.graphics.setColor(0.45, 0.60, 0.80, 0.70)
             love.graphics.printf(
-                 "Exploded: " .. self.totalExplosions .. "/" .. #self.spheres
-                     .. "    |   Remaining: " .. remaining,
-                w / 2, h - 35, w * 0.5, "center")
+                  "Exploded: " .. self.totalExplosions .. "/" .. #self.spheres
+                      .. "     |   Remaining: " .. remaining,
+                w / 2, h - 35, w * 0.80, "center")
+        end
+
+            -- Draw explosion particles on top of spheres
+        for _, p in ipairs(explosionParticles) do
+            p:draw()
         end
     end,
 
     onKeyReleased = function(self, key)
-           -- Esc goes back to menu
+            -- Esc goes back to menu
         if key == "escape" then
             changeState("menu")
             return
         end
 
-           -- Only respond to single letter keys (A-Z / a-z)
+            -- Restart hint: any key restarts the level when all done
+        if self.restartHint and self.hintTimer > 0 then
+            self.totalExplosions = 0
+            self.scoredLetters = {}
+            self.restartHint = false
+            self.showInstructions = true
+            self.instructionsTimer = 5
+                -- Refire onEnter to recreate spheres
+            local w, h = love.graphics.getWidth(), love.graphics.getHeight()
+            self.layout = getKeyboardLayout(w / 2, h / 2 + 10)
+            self.spheres = {}
+            for _, entry in ipairs(self.layout) do
+                table.insert(self.spheres, Sphere:new(entry.letter, entry.x, entry.y))
+            end
+            return
+        end
+
+            -- Only respond to single letter keys (A-Z / a-z)
         if not key:match("^%a$") then return end
 
         local upperKey = string.upper(key)
 
-           -- Find the sphere matching this letter and explode it
+            -- Check if this letter hasn't been exploded yet
+        if self.scoredLetters[upperKey] then return end
+
+            -- Find the sphere matching this letter and explode it
         for _, s in ipairs(self.spheres) do
-            if s.letter == upperKey and not self.scoredLetters[upperKey] then
-                   -- Explosion position (screen coords: layout is centered)
-                local ex = love.graphics.getWidth() / 2 + s.x
-                local ey = love.graphics.getHeight() / 2 + s.y + 30
+            if s.letter == upperKey then
+                    -- Explosion at the sphere's exact screen position (NOT double-centered!)
+                addExplosion(s.x, s.y, 1, 0.7, 0.4, 50)
 
-                   -- Color per letter (predefined vibrant palette)
-                local colors = {
-                     ["A"] = {1,0.5,0.3},   ["B"] = {0.8,0.6,1},
-                     ["C"] = {1,0.8,0.4}, ["D"] = {0.9,0.5,0.7},
-                     ["E"] = {1,0.9,0.3}, ["F"] = {0.6,0.8,1},
-                     ["G"] = {0.4,0.9,0.5},["H"] = {0.9,0.7,1},
-                     ["I"] = {0.7,0.7,1}, ["J"] = {1,0.6,0.8},
-                     ["K"] = {0.8,0.8,0.6},["L"] = {0.6,1,0.7},
-                     ["M"] = {0.9,0.4,0.5},["N"] = {0.7,0.6,0.9},
-                     ["O"] = {1,0.7,0.3}, ["P"] = {0.5,0.8,0.9},
-                     ["Q"] = {1,0.4,0.6}, ["R"] = {1,0.5,0.4},
-                     ["S"] = {0.8,0.9,0.5},["T"] = {0.4,0.7,0.9},
-                     ["U"] = {0.6,0.5,1},   ["V"] = {0.9,0.6,0.7},
-                     ["W"] = {0.7,0.9,0.4},["X"] = {0.5,0.9,0.8},
-                     ["Y"] = {1,0.8,0.3},   ["Z"] = {0.8,0.4,0.7}
-                  }
-                local color = colors[upperKey] or {1, 1, 1}
-
-                   -- Create explosion particles (added to global list for drawing)
-                for _, p in ipairs(createExplosion(ex, ey, color, 50)) do
-                    table.insert(explosionParticles, p)
-                end
-
-                   -- Mark as exploded (will fade out over ~1 second)
+                    -- Mark as exploded (will fade out over ~1 second)
                 self.scoredLetters[upperKey] = 0
                 self.totalExplosions = self.totalExplosions + 1
-                return -- only explode one sphere per keypress
+                    -- Exit immediately: only one sphere per keypress
+                return
             end
         end
     end,
 }
 
 --------------------------------------------------------------------------------
--- LEVEL 2: WORDS -- type words; correct letters sparkle.
+-- LEVEL 2: WORDS -- type words from a queue; sparkle on correct letter.
 --------------------------------------------------------------------------------
 
 states["level2"] = {
-    levelLabel = "Level 2 -- Words",
-       -- Word bank for the typing exercise
-    wordList = {"love","code","type","fast","easy","help","jump",
-                  "king","lucky","magic","night","power","quiet","swift",
-                  "apple","bread","chair","dream","earth","flame","grape",
-                  "heart","jewel","knife","music","world"},
-    flashAlpha = 0,
+    wordList = {"love", "code", "type", "fast", "easy", "help", "jump",
+                "king", "lucky", "magic", "night", "power", "quiet", "swift",
+                "apple", "bread", "chair", "dream", "earth", "flame", "grape",
+                "heart", "jewel", "knife", "music", "world"},
     currentWord = nil,
     typedProgress = 0, -- number of correct chars typed so far
+    wordQueue = {}, -- words drifting down in the background
+    flashAlpha = 0,
+    score = 0,
 
     onEnter = function(self)
         self.currentWord = nil
         self.typedProgress = 0
+        self.score = 0
 
-           -- Shuffle the word list for variety each game session
+            -- Shuffle the word list for variety
         local shuffled = {}
         for i = 1, #self.wordList do
             table.insert(shuffled, self.wordList[i])
@@ -528,34 +580,31 @@ states["level2"] = {
             shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
         end
 
-           -- Preload the first few words into a "queue" that drifts down
+            -- Preload first few words into the background queue
         self.wordQueue = {}
-        for i = 1, math.min(3, #shuffled) do
-            table.insert(self.wordQueue, {text = shuffled[i],
-                                          y = (i - 1) * 55, opacity = 1})
+        for i = 1, math.min(4, #shuffled) do
+            table.insert(self.wordQueue, {text = shuffled[i], y = (i - 1) * 50, opacity = 0.6})
         end
 
-           -- Set the first word as the active target to type
-        if #shuffled > 0 then
-            self.currentWord = shuffled[1]
-        end
+            -- Set the first word as active target to type
+        if #shuffled > 0 then self.currentWord = shuffled[1] end
     end,
 
     onUpdate = function(self, dt)
+            -- Flash fade decay
         self.flashAlpha = math.max(0, self.flashAlpha - dt * 3)
 
-           -- Drift all queue words downward slowly
+            -- Drift queue words downward slowly
         for idx = 1, #self.wordQueue do
-            self.wordQueue[idx].y = self.wordQueue[idx].y + dt * 12
+            self.wordQueue[idx].y = self.wordQueue[idx].y + dt * 10
         end
 
-           -- Remove off-screen words from the front of the queue
-        while #self.wordQueue > 0 and self.wordQueue[1].y > love.graphics.getHeight() - 80 do
+            -- Remove off-screen words and refill when needed
+        while (#self.wordQueue > 0 and self.wordQueue[1].y > love.graphics.getHeight() - 80) do
             table.remove(self.wordQueue, 1)
         end
 
-           -- Refill queue with new words when running low
-        if #self.wordQueue < 2 then
+        if #self.wordQueue < 3 then
             local shuffled = {}
             for i = 1, #self.wordList do
                 table.insert(shuffled, self.wordList[i])
@@ -573,94 +622,88 @@ states["level2"] = {
     onDraw = function(self)
         local w, h = love.graphics.getWidth(), love.graphics.getHeight()
 
-           -- Background gradient (dark greenish tint for this level)
+            -- Background gradient (dark greenish tint for this level)
         for y = 1, h do
             local t = y / h
-            love.graphics.setColor(lerp(0.04, 0.07, t),
-                                   lerp(0.03, 0.05, t),
-                                   lerp(0.08, 0.12, t))
+            love.graphics.setColor(lerp(0.03, 0.06, t),
+                                   lerp(0.04, 0.07, t),
+                                   lerp(0.06, 0.10, t))
             love.graphics.rectangle("fill", 0, y, w, 1)
         end
 
-           -- Title bar
-        love.graphics.setFont(love.graphics.newFont(15))
+            -- Title bar with score display
+        love.graphics.setFont(love.graphics.newFont(14))
         love.graphics.setColor(0.35, 0.42, 0.55, 0.6)
-        love.graphics.printf(self.levelLabel .. "     Press Esc to go back",
-                             w / 2, 28, w * 0.5, "center")
+        love.graphics.printf("Level 2 -- Words     Score: " .. self.score
+                             .. "    Press Esc to go back",
+                             w / 2, 28, w * 0.9, "center")
 
-           -- Draw queue words (drifting in the background)
+            -- Draw queue words drifting in the background
         for idx = 1, #self.wordQueue do
             local wordEntry = self.wordQueue[idx]
-               -- Skip drawing the current active word in the background queue
-            if self.currentWord and wordEntry.text == self.currentWord then
-                 -- skip: already shown large at center
-            else
+                -- Skip drawing the active word in the background queue
+            if not (self.currentWord and wordEntry.text == self.currentWord) then
                 love.graphics.setFont(love.graphics.newFont(18))
                 love.graphics.setColor(0.35, 0.42, 0.55, wordEntry.opacity * 0.6)
                 love.graphics.printf(wordEntry.text, w / 2,
-                                     70 + idx * 55, w * 0.5, "center")
+                                     70 + idx * 50, w * 0.5, "center")
             end
         end
 
-           -- Current word (large and prominent in center of screen)
+            -- Active word: large and prominent in center of screen
         if self.currentWord then
             local cw = self.currentWord
             local typedStr = cw:sub(1, self.typedProgress)
 
-               -- Progress bar above the word
-            local progress = 0
-            if #typedStr > 0 then
-                progress = #typedStr / #cw
-            end
+                -- Progress bar above the word (fills as you type correctly)
             love.graphics.setLineWidth(4)
             love.graphics.setColor(0.2, 0.28, 0.38, 1)
-            love.graphics.rectangle("fill", w / 2 - 100, 55, 200, 6)
-            if progress > 0 then
+            love.graphics.rectangle("fill", w / 2 - 100, 50, 200, 6)
+            if #typedStr > 0 then
+                local progress = #typedStr / #cw
                 love.graphics.setColor(0.3, 0.65, 0.4, 1)
-                love.graphics.rectangle("fill", w / 2 - 100, 55,
-                                        200 * progress, 6)
+                love.graphics.rectangle("fill", w / 2 - 100, 50, 200 * progress, 6)
             end
             love.graphics.setLineWidth(1)
 
-               -- Render typed portion in green, untyped remainder in dim white
-            local font = love.graphics.newFont(46)
+                -- Render typed portion in green, untyped remainder in dim gray
+            local font = love.graphics.newFont(44)
             love.graphics.setFont(font)
             local startX = w / 2 - #cw * 13
 
             for idx = 1, #typedStr do
                 love.graphics.setColor(0.35, 0.70, 0.40, 1)
                 love.graphics.printf(typedStr:sub(idx, idx),
-                                     startX + (idx - 1) * 26,
-                                     h / 2 - 15, 0, "left")
+                                     startX + (idx - 1) * 26, h / 2 - 10, 0, "left")
             end
             for idx = #typedStr + 1, #cw do
-                love.graphics.setColor(0.40, 0.45, 0.58, 0.5)
+                love.graphics.setColor(0.40, 0.45, 0.58, 0.50)
                 love.graphics.printf(cw:sub(idx, idx),
-                                     startX + (idx - 1) * 26,
-                                     h / 2 - 15, 0, "left")
+                                     startX + (idx - 1) * 26, h / 2 - 10, 0, "left")
             end
 
-               -- Flash overlay when word is completed
+                -- Flash overlay on word completion
             if self.flashAlpha > 0 then
-                love.graphics.setColor(0.3, 0.6, 0.35, self.flashAlpha * 0.15)
+                love.graphics.setColor(0.3, 0.6, 0.35, self.flashAlpha * 0.12)
                 love.graphics.rectangle("fill", 0, 0, w, h)
             end
 
-         else
-               -- Prompt to start typing (when no active word set)
+        else
+                -- Prompt to start typing
             local promptAlpha = math.sin(love.timer.getTime() * 3) * 0.3 + 0.5
             love.graphics.setFont(love.graphics.newFont(16))
-            love.graphics.setColor(0.4, 0.5, 0.6, promptAlpha)
-            love.graphics.printf("Start typing to begin!", w / 2,
-                                 h - 80, w * 0.4, "center")
+            love.graphics.setColor(0.45, 0.55, 0.70, promptAlpha)
+            love.graphics.printf("Start typing to begin!", w / 2, h - 70, w * 0.4, "center")
         end
 
-           -- Bottom hint
+            -- Bottom hint showing queue status
         love.graphics.setFont(love.graphics.newFont(13))
-        love.graphics.setColor(0.3, 0.35, 0.42, 0.5)
-        love.graphics.printf("Word queue: " .. #self.wordQueue
-                              .. "     Press Esc to go back",
-                             w / 2, h - 35, w * 0.5, "center")
+        love.graphics.setColor(0.30, 0.35, 0.42, 0.50)
+        love.graphics.printf("Queue: " .. #self.wordQueue .. " words",
+                             w / 2, h - 30, w * 0.6, "center")
+
+            -- Draw particles on top
+        for _, p in ipairs(explosionParticles) do p:draw() end
     end,
 
     onKeyReleased = function(self, key)
@@ -669,7 +712,7 @@ states["level2"] = {
             return
         end
 
-           -- Only process alphabetic keys (A-Z)
+            -- Only process alphabetic keys (A-Z)
         if not key:match("^%a$") then return end
         if not self.currentWord then return end
 
@@ -678,35 +721,29 @@ states["level2"] = {
         local pressed = string.upper(key)
 
         if pressed == expected then
-               -- Correct: increment progress and add sparkle particles
+                -- Correct: increment progress and add sparkle particles
             self.typedProgress = self.typedProgress + 1
 
-               -- Small sparkle burst for each correct keystroke
+                -- Small sparkle burst for each correct keystroke
             local cx = love.graphics.getWidth() / 2 - #self.currentWord * 13
                         + (self.typedProgress - 1) * 26
             local cy = love.graphics.getHeight() / 2
-            for _, p in ipairs(createExplosion(cx, cy,
-                 {0.35, 0.7, 0.4}, 6)) do
-                table.insert(explosionParticles, p)
-            end
+            addExplosion(cx, cy, 0.35, 0.7, 0.4, 8)
 
-               -- Word completed? Reset and move to next word
+                -- Word completed? Move to next word
             if self.typedProgress >= #self.currentWord then
-                   -- Celebration burst at center of screen
+                    -- Celebration burst at center of screen
                 local cx2 = love.graphics.getWidth() / 2
-                for _, p in ipairs(createExplosion(cx2,
-                    love.graphics.getHeight() / 2 - 30,
-                     {0.3, 0.9, 0.5}, 55)) do
-                    table.insert(explosionParticles, p)
-                end
+                addExplosion(cx2, love.graphics.getHeight() / 2 - 30,
+                             0.3, 0.9, 0.5, 55)
                 self.flashAlpha = 1
+                self.score = self.score + 1
 
-                   -- Pick next word from queue (or refill if empty)
+                    -- Pick next word from queue or refill if empty
                 if #self.wordQueue > 0 then
                     self.currentWord = table.remove(self.wordQueue, 1)
-                    self.typedProgress = 0
                 else
-                       -- Refill queue and set a new target word
+                        -- Refill queue and set new target word
                     local shuffled = {}
                     for i = 1, #self.wordList do
                         table.insert(shuffled, self.wordList[i])
@@ -715,16 +752,12 @@ states["level2"] = {
                         local j = math.random(i)
                         shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
                     end
-                    if #shuffled > 0 then
-                        self.currentWord = table.remove(shuffled, 1)
-                        self.typedProgress = 0
-                    end
+                    self.currentWord = table.remove(shuffled, 1)
                 end
+                self.typedProgress = 0
             end
-        else
-               -- Wrong letter: visual feedback could be added here
-               -- (e.g., red screen flash or shake effect)
         end
+            -- Wrong letters: currently no visual feedback (could add red flash)
     end,
 }
 
@@ -733,43 +766,47 @@ states["level2"] = {
 --------------------------------------------------------------------------------
 
 states["level3"] = {
-    levelLabel = "Level 3 -- Timed",
-       -- Smaller word bank for faster-paced timed challenge
-    wordList = {"love","code","type","fast","easy","help","jump",
-                  "king","lucky","magic","night","power","quiet","swift",
-                  "apple","bread","chair","dream","earth","flame","grape"},
+    wordList = {"love", "code", "type", "fast", "easy", "help", "jump",
+                "king", "lucky", "magic", "night", "power", "swift"},
     timeLeft = 60,
     score = 0,
     currentWord = nil,
     typedProgress = 0,
     flashAlpha = 0,
+    gameOver = false,
+    gameStartTime = 0,
 
     onEnter = function(self)
         self.timeLeft = 60
         self.score = 0
         self.currentWord = nil
         self.typedProgress = 0
-           -- Pick a random starting word to type immediately
+        self.gameOver = false
+        self.gameStartTime = love.timer.getTime()
+
+            -- Pick a random starting word to type immediately
         local idx = math.random(#self.wordList)
         self.currentWord = self.wordList[idx]
     end,
 
     onUpdate = function(self, dt)
-           -- Countdown timer: subtract frame time each update
-        self.timeLeft = self.timeLeft - dt
-        if self.timeLeft <= 0 then
-            self.timeLeft = 0
-               -- Timer expired: mark state (game over will be drawn next frame)
-            self.timeLeft = -1
+            -- Countdown timer (only runs when game hasn't started yet)
+        if not self.gameOver then
+            self.timeLeft = self.timeLeft - dt
+            if self.timeLeft <= 0 then
+                self.timeLeft = 0
+                    -- Mark as expired
+            end
         end
 
+            -- Flash fade decay
         self.flashAlpha = math.max(0, self.flashAlpha - dt * 3)
     end,
 
     onDraw = function(self)
         local w, h = love.graphics.getWidth(), love.graphics.getHeight()
 
-           -- Background gradient (redder tint for sense of urgency)
+            -- Background gradient (redder tint for sense of urgency)
         for y = 1, h do
             local t = y / h
             local r = math.min(0.08 + t * 0.04, 0.12)
@@ -778,97 +815,104 @@ states["level3"] = {
             love.graphics.rectangle("fill", 0, y, w, 1)
         end
 
-           -- Title bar: timer display with color based on urgency level
+            -- Title bar with timer and score
         local timeColor = {0.4, 0.7, 0.9}
         if self.timeLeft > 0 then
-            if self.timeLeft > 20 then
-                timeColor = {0.4, 0.7, 0.9}
-            elseif self.timeLeft > 10 then
-                timeColor = {0.85, 0.55, 0.3}
-            else
-                timeColor = {0.85, 0.25, 0.25}
-            end
+            if self.timeLeft > 20 then timeColor = {0.4, 0.7, 0.9}
+            elseif self.timeLeft > 10 then timeColor = {0.85, 0.55, 0.3}
+            else timeColor = {0.85, 0.25, 0.25} end
         end
-        love.graphics.setFont(love.graphics.newFont(15))
+        love.graphics.setFont(love.graphics.newFont(14))
         love.graphics.setColor(timeColor[1], timeColor[2], timeColor[3], 0.8)
-        local timerDisplay = self.timeLeft > 0 and math.ceil(self.timeLeft)
-                                                    or 0
-        love.graphics.printf("Clock: " .. timerDisplay .. "s     |  Score: "
-                              .. self.score .. "     Press Esc to go back",
-                             w / 2, 28, w * 0.6, "center")
+        local timerText = "Time: " .. math.max(0, math.ceil(self.timeLeft)) .. "s"
+        if self.currentWord then
+            timerText = timerText .. " | Score: " .. self.score
+        end
+        love.graphics.printf(timerText .. "    Press Esc to go back",
+                             w / 2, 28, w * 0.9, "center")
 
-        if self.timeLeft > 0 and self.currentWord then
-               -- Progress bar: fills as you type, color based on urgency
-            local progress = 0
-            if self.typedProgress and self.typedProgress > 0 then
-                progress = self.typedProgress / #self.currentWord
-            end
-            love.graphics.setLineWidth(5)
-            local barColor = {0.3, 0.65, 0.4}
-            if self.timeLeft < 10 then
-                barColor = {0.75, 0.25, 0.25}
-            end
-            love.graphics.setColor(0.2, 0.28, 0.38, 1)
-            love.graphics.rectangle("fill", w / 2 - 100, 55, 200, 6)
-            if progress > 0 then
-                love.graphics.setColor(barColor[1], barColor[2], barColor[3], 1)
-                love.graphics.rectangle("fill", w / 2 - 100, 55,
-                                        200 * progress, 6)
-            end
-            love.graphics.setLineWidth(1)
+        if not self.gameOver and self.timeLeft > 0 then
+            if self.currentWord then
+                    -- Progress bar (fills as you type)
+                local progress = #self.typedProgress >= 0 and self.typedProgress / #self.currentWord or 0
+                love.graphics.setLineWidth(5)
+                local barColor = self.timeLeft < 10 and {0.75, 0.25, 0.25}
+                                                       or {0.3, 0.65, 0.4}
+                love.graphics.setColor(0.2, 0.28, 0.38, 1)
+                love.graphics.rectangle("fill", w / 2 - 100, 50, 200, 6)
+                if progress > 0 then
+                    love.graphics.setColor(barColor[1], barColor[2], barColor[3], 1)
+                    love.graphics.rectangle("fill", w / 2 - 100, 50, 200 * progress, 6)
+                end
+                love.graphics.setLineWidth(1)
 
-               -- Word display (typed green, untyped dim gray)
-            local cw = self.currentWord
-            local typedStr = cw:sub(1, self.typedProgress or 0)
-            local font = love.graphics.newFont(48)
-            love.graphics.setFont(font)
-            local startX = w / 2 - #cw * 14
+                    -- Word display (typed green, untyped dim gray)
+                local cw = self.currentWord
+                local typedStr = cw:sub(1, self.typedProgress or 0)
+                local font = love.graphics.newFont(46)
+                love.graphics.setFont(font)
+                local startX = w / 2 - #cw * 14
 
-            for idx = 1, #typedStr do
-                love.graphics.setColor(0.35, 0.70, 0.40, 1)
-                love.graphics.printf(typedStr:sub(idx, idx),
-                                     startX + (idx - 1) * 28,
-                                     h / 2 - 10, 0, "left")
-            end
-            for idx = #typedStr + 1, #cw do
-                love.graphics.setColor(0.40, 0.45, 0.58, 0.5)
-                love.graphics.printf(cw:sub(idx, idx),
-                                     startX + (idx - 1) * 28,
-                                     h / 2 - 10, 0, "left")
+                for idx = 1, #typedStr do
+                    love.graphics.setColor(0.35, 0.70, 0.40, 1)
+                    love.graphics.printf(typedStr:sub(idx, idx),
+                                         startX + (idx - 1) * 28, h / 2 - 10, 0, "left")
+                end
+                for idx = #typedStr + 1, #cw do
+                    love.graphics.setColor(0.40, 0.45, 0.58, 0.50)
+                    love.graphics.printf(cw:sub(idx, idx),
+                                         startX + (idx - 1) * 28, h / 2 - 10, 0, "left")
+                end
+
+                    -- Start hint (pulsing fade-in/out animation)
+                if #typedStr == 0 then
+                    local hintAlpha = math.sin(love.timer.getTime() * 3) * 0.25 + 0.45
+                    love.graphics.setFont(love.graphics.newFont(13))
+                    love.graphics.setColor(0.45, 0.55, 0.70, hintAlpha)
+                    love.graphics.printf("Press a letter to start!", w / 2, h - 60, w * 0.4, "center")
+                end
+
+                    -- Flash overlay on word completion
+                if self.flashAlpha > 0 then
+                    love.graphics.setColor(0.25, 0.50, 0.30, self.flashAlpha * 0.12)
+                    love.graphics.rectangle("fill", 0, 0, w, h)
+                end
+
+            else
+                    -- Initial state before first word shown
+                local promptAlpha = math.sin(love.timer.getTime() * 3) * 0.25 + 0.5
+                love.graphics.setFont(love.graphics.newFont(16))
+                love.graphics.setColor(0.45, 0.55, 0.70, promptAlpha)
+                love.graphics.printf("Press any key to begin!", w / 2, h / 2 + 30, w * 0.4, "center")
             end
 
-               -- Flash overlay on word completion
-            if self.flashAlpha > 0 then
-                love.graphics.setColor(0.25, 0.50, 0.30, self.flashAlpha * 0.15)
-                love.graphics.rectangle("fill", 0, 0, w, h)
-            end
+        elseif self.gameOver then
+                -- Game over overlay: semi-transparent dark with red text
+            local elapsed = love.timer.getTime() - self.gameStartTime
+            local goAlpha = math.min(1, elapsed / 2)
 
-               -- Start hint (pulsing fade-in/out animation)
-            if not typedStr or #typedStr == 0 then
-                local hintAlpha = math.sin(love.timer.getTime() * 3) * 0.3 + 0.5
-                love.graphics.setFont(love.graphics.newFont(14))
-                love.graphics.setColor(0.4, 0.5, 0.6, hintAlpha)
-                love.graphics.printf("Press any letter key to start!",
-                                     w / 2, h - 80, w * 0.4, "center")
-            end
-
-         elseif self.timeLeft <= 0 then
-               -- Game over overlay: semi-transparent dark with red text
-            local goAlpha = math.min(1, love.timer.getTime() % 5 / 3)
-            love.graphics.setColor(0.06, 0.03, 0.06, goAlpha * 0.8)
+            love.graphics.setColor(0.06, 0.03, 0.06, goAlpha * 0.85)
             love.graphics.rectangle("fill", 0, 0, w, h)
 
-            love.graphics.setFont(love.graphics.newFont(48))
+            love.graphics.setFont(love.graphics.newFont(44))
             love.graphics.setColor(0.85, 0.25, 0.25, goAlpha)
-            love.graphics.printf("Time's up!",
-                                 w / 2, h / 2 - 30, w * 0.6, "center")
+            love.graphics.printf("Time's up!", w / 2, h / 2 - 30, w * 0.6, "center")
 
             love.graphics.setFont(love.graphics.newFont(20))
             love.graphics.setColor(0.6, 0.70, 0.85, goAlpha)
-            love.graphics.printf("Final Score: " .. self.score
-                                  .. "     Press Esc to go back",
+            love.graphics.printf("Final Score: " .. self.score,
                                  w / 2, h / 2 + 30, w * 0.5, "center")
-         end
+
+                -- Restart hint (pulsing)
+            local restartAlpha = math.sin(elapsed * 3) * 0.25 + 0.45
+            love.graphics.setFont(love.graphics.newFont(14))
+            love.graphics.setColor(0.50, 0.60, 0.75, restartAlpha)
+            love.graphics.printf("Press any key to restart     Esc for menu",
+                                 w / 2, h / 2 + 80, w * 0.6, "center")
+        end
+
+            -- Draw particles on top
+        for _, p in ipairs(explosionParticles) do p:draw() end
     end,
 
     onKeyReleased = function(self, key)
@@ -877,53 +921,60 @@ states["level3"] = {
             return
         end
 
-           -- Ignore keys after game is over (wait for restart logic)
-        if self.timeLeft <= 0 then return end
-        if not self.currentWord then return end
+            -- Handle game over restart
+        if self.gameOver then
+                -- Any letter key restarts; esc goes to menu (already handled above)
+            if key:match("^%a$") then
+                    -- Restart: reset all stats and pick new word
+                self.timeLeft = 60
+                self.score = 0
+                self.currentWord = nil
+                self.typedProgress = 0
+                self.gameOver = false
+                local idx = math.random(#self.wordList)
+                self.currentWord = self.wordList[idx]
+            end
+            return
+        end
+
+            -- Only process alphabetic keys (A-Z)
         if not key:match("^%a$") then return end
 
-           -- Only respond to the first keystroke (to start typing the word)
+        if not self.timeLeft or self.timeLeft <= 0 then return end
+        if not self.currentWord then return end
+
+            -- Only respond to the first keystroke to start typing
         if self.typedProgress and self.typedProgress > 0 then return end
 
-           -- Mark that we've started typing
+            -- Mark that we've started typing
         self.typedProgress = 1
 
-           -- Check correctness of the first letter
+            -- Check correctness of the first letter
         local expected = self.currentWord:sub(1, 1):upper()
         local pressed = string.upper(key)
 
         if pressed == expected then
-               -- Correct! Score scales with remaining time (longer = better)
+                -- Correct! Score scales with remaining time (longer = better)
             self.score = self.score + math.ceil(self.timeLeft) * 10
             self.flashAlpha = 1
 
-               -- Explosion for correct word completion
+                -- Explosion for correct word completion
             local cx = love.graphics.getWidth() / 2
-            for _, p in ipairs(createExplosion(cx,
-                love.graphics.getHeight() / 2 - 30,
-                 {0.3, 0.9, 0.5}, 45)) do
-                table.insert(explosionParticles, p)
-            end
+            addExplosion(cx, love.graphics.getHeight() / 2 - 30,
+                         0.3, 0.9, 0.5, 45)
 
-               -- Pick next random word for the challenge
+                -- Pick next random word for the challenge
             local idx = math.random(#self.wordList)
             self.currentWord = self.wordList[idx]
             self.typedProgress = 0
         else
-               -- Wrong first letter: switch to a new random word and penalize time
+                -- Wrong first letter: switch to new word and penalize time
             local idx = math.random(#self.wordList)
             self.currentWord = self.wordList[idx]
-            self.timeLeft = self.timeLeft - 3
-            if self.timeLeft < 0 then self.timeLeft = 0 end
+            self.timeLeft = math.max(0, self.timeLeft - 3)
         end
     end,
 }
-
---------------------------------------------------------------------------------
--- GLOBAL particle list: rendered on top of everything in love.draw.
---------------------------------------------------------------------------------
-
-local explosionParticles = {}
 
 --------------------------------------------------------------------------------
 -- Main entry point: Love2D callbacks that dispatch to the state machine.
@@ -934,17 +985,17 @@ love.load = function()
     local baseFont = love.graphics.newFont(16)
     love.graphics.setFont(baseFont)
     love.window.setMode(960, 700, {fullscreen = false})
-       -- Start at the menu state
+        -- Start at the menu state
     changeState("menu")
 end
 
 love.update = function(dt)
-       -- Update the active state (timer-driven game logic)
+        -- Update the active state (timer-driven game logic)
     if states[currentStateName] and states[currentStateName].onUpdate then
         states[currentStateName]:onUpdate(dt)
     end
 
-       -- Always update explosion particles (rendered on top in love.draw)
+        -- Always update explosion particles (rendered on top in love.draw)
     for i = #explosionParticles, 1, -1 do
         local p = explosionParticles[i]
         p:update(dt)
@@ -953,19 +1004,14 @@ love.update = function(dt)
 end
 
 love.draw = function()
-       -- Draw the active state's visual content
+        -- Draw the active state's visual content
     if states[currentStateName] and states[currentStateName].onDraw then
         states[currentStateName]:onDraw()
     end
-
-       -- Render explosion particles on top of everything
-    for _, p in ipairs(explosionParticles) do
-        p:draw()
-    end
 end
 
-love.keyreleased = function(key, scancode)
-       -- Route key events to the active state (passed as simple strings)
+love.keyreleased = function(key)
+        -- Route key events to the active state
     if states[currentStateName] and states[currentStateName].onKeyReleased then
         states[currentStateName]:onKeyReleased(key)
     end
