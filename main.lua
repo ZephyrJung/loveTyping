@@ -538,195 +538,242 @@ states["level1"] = {
 }
 
 --------------------------------------------------------------------------------
--- LEVEL 2: FALLING LETTERS -- spheres drop from above, press to explode!
--- Don't let them pile up on the ground or it's game over.
+--------------------------------------------------------------------------------
+-- LEVEL 2: FALLING SPHERES -- Three-tier progressive speed!
+-- Spheres fall from top. Type letters before they overflow past ground line.
+-- < 5 on screen for ~6s clean play --> prompt to advance tier.
 --------------------------------------------------------------------------------
 
 states["level2"] = {
-    flashAlpha = 0,
-    score = 0,
-    penaltyTimer = 0,     -- cooldown after clearing an overflowed pile
+    currentTier = 1,                -- 1=slow (default), 2=medium, 3=fast
     gameTime = 0,
-    spawnTimer = 0,
-    spawnInterval = 1.5,
-    fallingSpheres = {},
-    landedPile = {},
-
-    onEnter = function(self)
-        self.score = 0
-        self.penaltyTimer = 0
-        self.gameTime = 0
-        self.spawnTimer = 0.5
-        self.spawnInterval = 1.5
-        self.fallingSpheres = {}
-        self.landedPile = {}
-    end,
+    spawnTimer = 0.5,
+    safeWindowDuration = 6,         -- seconds of clean play needed to advance
+    safeWindowStart = 0,            -- when clean play began (<5 on screen)
+    flashAlpha = 0,                           -- screen flash on hit
+    score = 0,
+    fallingSpheres = {},                -- active falling spheres
+    overflowCount = 0,              -- spheres that fell past ground line
 
     onUpdate = function(self, dt)
         self.gameTime = self.gameTime + dt
 
-             -- Difficulty ramps up: spawn faster over time
-        local difficulty = math.min(0.35, 1.5 - self.gameTime * 0.02)
-        self.spawnInterval = difficulty
+          --- Tier config table: {spawnInterval, gravity}
+        local tiers = {{1.5, 40}, {0.8, 65}, {0.35, 95}}
+        local tierConf = tiers[self.currentTier]
+        local spawnInt = tierConf[1]
+        local grav = tierConf[2]
 
-             -- Spawn a new falling sphere periodically
+          --- Spawn logic per tier
         self.spawnTimer = self.spawnTimer - dt
         if self.spawnTimer <= 0 then
             local w = love.graphics.getWidth()
             local letterIdx = math.random(26)
             local letter = string.char(letterIdx + 64) -- A-Z
             local sx = math.random(80, w - 80)
-            local sphere = Sphere:new(letter, sx, -40)
-            table.insert(self.fallingSpheres, sphere)
+            local speed = (math.random() * 60 + 20)
 
-                  -- Reset timer with slight randomness
-            self.spawnTimer = self.spawnInterval + math.random(-200, 200) / 1000
+              --- Create sphere at top of screen
+            local s = Sphere:new(letter, sx, -40)
+            s.vy = speed             -- store initial velocity for gravity calc
+            table.insert(self.fallingSpheres, s)
+
+              --- Reset timer with slight randomness
+            self.spawnTimer = spawnInt + math.random(-150, 150) / 1000
         end
 
-             -- Update all falling spheres (gravity + pulse)
-        local gravity = 50
+          --- Update all falling spheres (gravity + pulse)
+        local gravity = grav         -- gravity per tier: 40 / 65 / 95
         for i = #self.fallingSpheres, 1, -1 do
             local s = self.fallingSpheres[i]
             s:update(dt)
 
-                  -- Apply gravity to vertical velocity
+              --- Apply gravity to vertical velocity
             s.vy = (s.vy or 30) + gravity * dt
             s.y = s.y + s.vy * dt
 
-                  -- Check if fallen past the ground line
+              --- Check if fallen past the ground line
             local h = love.graphics.getHeight()
             local groundY = h - 120
 
             if s.y > groundY then
-                     -- Landed! Move to pile, remove from falling list
-                table.insert(self.landedPile, {letter = s.letter, x = s.x, y = groundY})
+                  -- Sphere overflowed! Increment overflow counter
+                self.overflowCount = self.overflowCount + 1
                 table.remove(self.fallingSpheres, i)
+            end
+        end
 
-                      -- Game over check: too many landed spheres --
-                   -- Clear everything at once (no screen flash), give penalty timer
-                if #self.landedPile > 12 and not self.overflowHandled then
-                    self.landedPile = {}
-                    self.fallingSpheres = {}
-                    self.score = math.max(0, self.score - 5)
-                    self.penaltyTimer = 2.0
-                    self.overflowHandled = true
+          --- Safe window tracking: < 5 on screen and no overflow
+        local onScreenCount = #self.fallingSpheres
+        if onScreenCount < 5 and self.overflowCount == 0 then
+              -- Clean play: no overflow, less than 5 on screen
+            if self.safeWindowStart == 0 then
+                self.safeWindowStart = self.gameTime
+            else
+                local cleanDuration = self.gameTime - self.safeWindowStart
+                if cleanDuration >= self.safeWindowDuration then
+                      -- Sufficient clean play to advance tier!
+                    if self.currentTier < 3 then
+                        self.currentTier = self.currentTier + 1
+
+                          -- Keep safe window open for next tier too
+                    else
+                          -- Reached max tier; keep the window open
+                    end
+                    self.safeWindowStart = 0 -- reset for next advancement
                 end
             end
+        else
+              -- Reset safe window on any overflow or high count
+            self.safeWindowStart = 0
         end
 
-             -- Flash fade decay (used for hit feedback only)
-        self.flashAlpha = math.max(0, self.flashAlpha - dt * 2)
-
-             -- Penalty timer countdown
-        if self.penaltyTimer > 0 then
-            self.penaltyTimer = self.penaltyTimer - dt
-            if self.penaltyTimer <= 0 then
-                self.overflowHandled = false
-            end
-        end
+          --- Flash fade decay (subtle green flash on hit only)
+        self.flashAlpha = math.max(0, self.flashAlpha - dt * 3)
     end,
 
     onDraw = function(self)
         local w, h = love.graphics.getWidth(), love.graphics.getHeight()
 
-             -- Background gradient (dark blue-green for this level)
+          --- Background gradient (dark blue-purple, subtle teal accent)
         for y = 1, h do
             local t = y / h
-            love.graphics.setColor(lerp(0.03, 0.05, t),
+            love.graphics.setColor(lerp(0.03, 0.06, t),
                                    lerp(0.04, 0.07, t),
-                                   lerp(0.06, 0.10, t))
+                                   lerp(0.10, 0.20, t))
             love.graphics.rectangle("fill", 0, y, w, 1)
         end
 
-             -- Draw ground line
+          --- Draw ground line
         local groundY = h - 120
         love.graphics.setLineWidth(2)
-        love.graphics.setColor(0.4, 0.5, 0.6, 0.35)
+        love.graphics.setColor(0.35, 0.45, 0.60, 0.30)
         love.graphics.line(0, groundY, w, groundY)
         love.graphics.setLineWidth(1)
 
-             -- Draw landed pile (static colored circles at bottom)
-        for _, entry in ipairs(self.landedPile) do
-            local hue = ((string.byte(entry.letter) - 65) / 25) * math.pi * 2
-            local r, g, b = hslToRgb(hue)
-            love.graphics.setColor(r * 0.6, g * 0.6, b * 0.6, 0.7)
-            love.graphics.circle("fill", entry.x, entry.y - 18, 24)
-        end
-
-             -- Draw falling spheres on top
+          --- Draw falling spheres
         for _, s in ipairs(self.fallingSpheres) do
             s:draw()
         end
 
-             -- Title bar with score
+          --- Title bar with tier info
+        local tierNames = {"Slow", "Medium", "Fast"}
         love.graphics.setFont(love.graphics.newFont(14))
         love.graphics.setColor(0.35, 0.42, 0.55, 0.6)
-        local pileCount = #self.landedPile
-        local titleText = "Level 2 -- Falling Letters"
-        if pileCount > 0 then
-            titleText = titleText .. "       | Pile: " .. math.min(pileCount, 99)
-        end
-        love.graphics.printf(titleText, w / 2, 28, w * 0.65, "center")
+        love.graphics.printf("Level 2 -- Falling Letters    (" .. tierNames[self.currentTier] .. ")", w / 2, 28, w * 0.7, "center")
 
-             -- Score display (subtle green)
+          --- Score display (subtle green)
         local scoreAlpha = math.min(1, self.gameTime * 0.5)
         if self.score > 0 or scoreAlpha >= 1 then
             love.graphics.setFont(love.graphics.newFont(16))
-            love.graphics.setColor(0.35, 0.65, 0.40, scoreAlpha)
+            love.graphics.setColor(0.35, 0.65, 0.40, math.min(1, self.gameTime * 0.5))
             love.graphics.printf("Score: " .. self.score, w / 2 - 60, 48, 120, "center")
         end
 
-             -- Falling speed indicator bar (no flash, just progress)
-        local speedPercent = math.min(100, math.floor(self.gameTime / 2.5))
+          --- Speed indicator bar (no flash, just progress within tier)
+        local speedPercent = math.min(100, math.floor((self.gameTime % 30) / 30 * 100))
         love.graphics.setFont(love.graphics.newFont(13))
         love.graphics.setColor(0.30, 0.35, 0.42, 0.50)
         local barW = w * 0.3
         love.graphics.rectangle("fill", w / 2 - barW / 2, h - 60, barW, 8)
         if speedPercent > 0 then
-            love.graphics.setColor(lerp(0.4, 0.85, speedPercent / 100),
-                                   lerp(0.7, 0.3, speedPercent / 100),
-                                     0.35, 0.7)
-            love.graphics.rectangle("fill", w / 2 - barW / 2, h - 60,
-                                    barW * (speedPercent / 100), 8)
+            local tc = {{0.4, 0.85, 0.35}, {0.85, 0.7, 0.35}, {0.85, 0.35, 0.25}}
+            love.graphics.setColor(tc[self.currentTier][1], tc[self.currentTier][2], tc[self.currentTier][3], 0.7)
+            love.graphics.rectangle("fill", w / 2 - barW / 2, h - 60, barW * (speedPercent / 100), 8)
         end
         love.graphics.setColor(0.30, 0.35, 0.42, 0.50)
         love.graphics.rectangle("line", w / 2 - barW / 2, h - 60, barW, 8)
-        love.graphics.printf("Speed: " .. speedPercent .. "%",
-                             w / 2, h - 40, w * 0.5, "center")
+        love.graphics.printf("Tier: " .. math.min(3, self.currentTier) .. "/3", w / 2, h - 40, w * 0.5, "center")
 
-             -- Subtle overflow warning near ground (no screen flash)
-        if self.penaltyTimer and self.penaltyTimer > 0 then
-            local hintAlpha = math.min(1, self.penaltyTimer) * 0.35
+          --- Subtle tier hint when approaching next speed
+        if self.safeWindowStart > 0 then
+            local cleanSec = (self.gameTime - self.safeWindowStart)
+            local hintAlpha = math.min(1, cleanSec / self.safeWindowDuration) * 0.7
+            love.graphics.setFont(love.graphics.newFont(16))
+
+              -- Tier advancement message
+            if cleanSec >= self.safeWindowDuration then
+                local nextNames = {"Medium", "Fast", ""}
+                local nextTier = math.min(self.currentTier + 1, 3)
+                love.graphics.setColor(0.50, 0.80, 0.40, hintAlpha)
+                love.graphics.printf("Next tier: " .. nextNames[nextTier] .. "! Press any key to confirm", w / 2, h / 2 - 20, w * 0.6, "center")
+            else
+                local pct = math.floor(cleanSec / self.safeWindowDuration * 100)
+                love.graphics.setColor(0.50, 0.75, 0.40, hintAlpha)
+                love.graphics.printf("Almost next tier! (" .. pct .. "% clean play)", w / 2, h / 2 - 20, w * 0.5, "center")
+            end
+        elseif self.overflowCount > 0 then
+              -- Overflow warning (no screen flash)
+            local hintAlpha = math.min(1, self.overflowCount / 5) * 0.6
             love.graphics.setFont(love.graphics.newFont(14))
-            love.graphics.setColor(0.50, 0.35, 0.25, hintAlpha)
-            love.graphics.printf("Pile cleared!    " .. math.ceil(self.penaltyTimer) .. "s",
-                                 w / 2, h / 2 + 60, w * 0.5, "center")
+            love.graphics.setColor(0.70, 0.35, 0.25, hintAlpha)
+            love.graphics.printf("Overflow: " .. self.overflowCount .. " -- type faster!", w / 2, h / 2 + 40, w * 0.5, "center")
         end
 
-             -- Esc hint (always visible at bottom)
+          --- Tier selector buttons (bottom-right)
+        local btnH = 28
+        local btnW = 65
+        local btnGap = 8
+        local btnX = w - btnW * 3 - btnGap * 2 - 20
+        local btnY = h - 70
+
+        for i = 1, 3 do
+            local bx = btnX + (btnW + btnGap) * (i - 1)
+            local by = btnY
+            local isActive = (self.currentTier == i)
+
+              -- Button background (highlighted if active)
+            local actColors = {{0.2, 0.5, 0.3}, {0.6, 0.4, 0.1}, {0.6, 0.15, 0.15}}
+            local stdColor = {0.12, 0.16, 0.28}
+            local col = isActive and actColors[i] or stdColor
+            love.graphics.setColor(col[1], col[2], col[3])
+            love.graphics.rectangle("fill", bx, by, btnW, btnH, 6)
+
+              -- Button border
+            if isActive then
+                love.graphics.setColor(0.5, 0.7, 0.4)
+            else
+                love.graphics.setColor(0.25, 0.3, 0.4)
+            end
+            love.graphics.setLineWidth(isActive and 2 or 1)
+            love.graphics.rectangle("line", bx, by, btnW, btnH, 6)
+            love.graphics.setLineWidth(1)
+
+              -- Button text
+            love.graphics.setFont(love.graphics.newFont(13))
+            if isActive then
+                love.graphics.setColor(1, 1, 1)
+            else
+                love.graphics.setColor(0.65, 0.7, 0.8)
+            end
+            love.graphics.printf(tierNames[i], bx + btnW / 2, by + btnH / 2 - 4,
+                                 btnW - 8, "center")
+        end
+
+          --- Esc hint (always visible at bottom)
         love.graphics.setFont(love.graphics.newFont(13))
         love.graphics.setColor(0.30, 0.35, 0.42, 0.50)
         love.graphics.printf("Press Esc to go back", w / 2, h - 15, w * 0.6, "center")
 
-             -- Draw explosion particles on top of everything
+          --- Draw explosion particles on top of everything
         for _, p in ipairs(explosionParticles) do
             p:draw()
         end
     end,
 
     onKeyReleased = function(self, key)
-             -- Esc goes back to menu
+          --- Esc goes back to menu
         if key == "escape" then
             changeState("menu")
             return
         end
 
-             -- Only respond to single letter keys (A-Z / a-z)
+          --- Only respond to single letter keys (A-Z / a-z)
         if not key:match("^%a$") then return end
 
         local upperKey = string.upper(key)
 
-             -- Find matching falling sphere closest to the bottom (most urgent)
+          --- Find matching falling sphere closest to the bottom (most urgent)
         local bestIdx = nil
         local bestY = -9999
 
@@ -738,37 +785,34 @@ states["level2"] = {
             end
         end
 
-             -- If no falling sphere matches, try landed pile (destroy one)
+          --- If no falling sphere matches, try overflow pile (destroy one)
         if not bestIdx then
-            for i = #self.landedPile, 1, -1 do
-                if self.landedPile[i].letter == upperKey then
-                    table.remove(self.landedPile, i)
-                     -- Small success: remove from pile (less satisfying)
-                    return
-                end
+            if self.overflowCount > 0 then
+                  -- Reduce overflow count (gives player a chance)
+                self.overflowCount = math.max(0, self.overflowCount - 1)
             end
-            return -- No matching sphere found at all
+            return
         end
 
-             -- Found it! Explosion!
+          --- Found it! Explosion!
         local target = self.fallingSpheres[bestIdx]
         addExplosion(target.x, target.y, 1, 0.7, 0.4, 50)
 
-             -- Remove from falling spheres
+          --- Remove from falling spheres
         table.remove(self.fallingSpheres, bestIdx)
 
-             -- Score increases more for harder-to-reach (lower) spheres
+          --- Score increases more for harder-to-reach (lower) spheres
         local h = love.graphics.getHeight()
-        local difficulty = math.max(1, (h - 120 - target.y + 200) / (h * 0.4))
+        local groundY = h - 120
+        local difficulty = math.max(1, (groundY + 200 - target.y) / (h * 0.4))
         self.score = self.score + math.floor(difficulty + 0.5)
 
-             -- Brief flash on successful hit (subtle, max 15% alpha)
-        self.flashAlpha = 0.15
+          --- Brief green flash on successful hit (subtle, max 8% alpha)
+        self.flashAlpha = 0.08
     end,
 }
 
 
---------------------------------------------------------------------------------
 
 states["level3"] = {
     wordList = {"love", "code", "type", "fast", "easy", "help", "jump",
@@ -839,7 +883,7 @@ states["level3"] = {
         if not self.gameOver and self.timeLeft > 0 then
             if self.currentWord then
                     -- Progress bar (fills as you type)
-                local progress = #self.typedProgress >= 0 and self.typedProgress / #self.currentWord or 0
+                local progress = self.typedProgress / #self.currentWord or 0
                 love.graphics.setLineWidth(5)
                 local barColor = self.timeLeft < 10 and {0.75, 0.25, 0.25}
                                                        or {0.3, 0.65, 0.4}
@@ -1022,9 +1066,28 @@ love.keyreleased = function(key)
     end
 end
 
+
 love.mousepressed = function(x, y, button)
-        -- Forward mouse click to menu state's mouseClicked flag
+         -- Forward mouse click to menu state's mouseClicked flag
     if button == 1 and currentStateName == "menu" and states["menu"] then
         states["menu"].mouseClicked = true
+    end
+
+       -- Level 2: click tier selector buttons (bottom-right corner)
+    if button == 1 and currentStateName == "level2" and states["level2"] then
+        local w, h = love.graphics.getWidth(), love.graphics.getHeight()
+        local bW, bH, gap = 65, 28, 8
+        local bx = w - bW * 3 - gap * 2 - 20
+        local by = h - 70
+
+        for i = 1, 3 do
+            local cbx = bx + (bW + gap) * (i - 1)
+               -- Check click bounds
+            if x >= cbx and x <= cbx + bW and y >= by and y <= by + bH then
+                states["level2"].currentTier = i
+                states["level2"].overflowCount = 0
+                states["level2"].safeWindowStart = 0
+            end
+        end
     end
 end
