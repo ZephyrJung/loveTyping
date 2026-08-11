@@ -227,6 +227,7 @@ states["menu"] = {
     flashAlpha = 0,
     flashTimer = 1.2,
     hoverIdx = -1, -- track which button is hovered (for keyboard nav)
+    mouseClicked = false, -- flag set by love.mousepressed
 
     onEnter = function(self)
         local w, h = love.graphics.getWidth(), love.graphics.getHeight()
@@ -257,10 +258,11 @@ states["menu"] = {
             end
         end
 
-            -- Handle mouse click on buttons
-        if love.mouse.justPressed(1) then
+            -- Handle mouse click on buttons (use our clicked flag for LÖVE 11 compatibility)
+        if self.mouseClicked then
+            self.mouseClicked = false -- reset the flag
+            local mmx, mmy = love.mouse.getPosition()
             for i, btn in ipairs(self.buttons) do
-                local mmx, mmy = love.mouse.getPosition()
                 if (mmx >= btn.x and mmx <= btn.x + btn.w and
                     mmy >= btn.y and mmy <= btn.y + btn.h) then
                     changeState("level" .. tostring(btn.id))
@@ -270,7 +272,8 @@ states["menu"] = {
         end
 
             -- Keyboard navigation for buttons (1/2/3 keys)
-        if love.keyboard.isDown("1", "2", "3") then
+        if love.keyboard.isDown("1") or love.keyboard.isDown("2")
+             or love.keyboard.isDown("3") then
             local key = nil
             if love.keyboard.isDown("1") then key = 1
             elseif love.keyboard.isDown("2") then key = 2
@@ -1014,5 +1017,12 @@ love.keyreleased = function(key)
         -- Route key events to the active state
     if states[currentStateName] and states[currentStateName].onKeyReleased then
         states[currentStateName]:onKeyReleased(key)
+    end
+end
+
+love.mousepressed = function(x, y, button)
+        -- Forward mouse click to menu state's mouseClicked flag
+    if button == 1 and currentStateName == "menu" and states["menu"] then
+        states["menu"].mouseClicked = true
     end
 end
