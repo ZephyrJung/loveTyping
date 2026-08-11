@@ -106,7 +106,7 @@ function Sphere:new(letter, x, y)
         -- Map letter A(0)..Y(25) to RGB via HSL hue angle for unique coloring.
     local hueFrac = (string.byte(letter) - string.byte('A')) / 25
     local r, g, b = hslToRgb(hueFrac * math.pi * 2)
-    s.glowColor = {r + m, g + m, b + m}
+    s.glowColor = {r, g, b}
     return s
 end
 
