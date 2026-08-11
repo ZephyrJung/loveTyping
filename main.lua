@@ -143,9 +143,9 @@ function Sphere:draw()
         -- Colored border ring
     love.graphics.setLineWidth(1.5)
     love.graphics.setColor(gc[1] * 0.7, gc[2] * 0.7, gc[3] * 0.7, 0.50 * self.opacity)
-    -- circle("line") not supported in LOVE 11; use double-fill for thick line
-    love.graphics.circle("fill", self.x, self.y, sr + 2)
-    love.graphics.circle("fill", self.x, self.y, sr)
+    -- circle outline for sphere border effect (supported in LOVE 11+)
+    love.graphics.setLineWidth(2.5)
+    love.graphics.circle("line", self.x, self.y, sr - 1)
     love.graphics.setLineWidth(1)
 
         -- Letter label with drop shadow for readability
