@@ -143,7 +143,9 @@ function Sphere:draw()
         -- Colored border ring
     love.graphics.setLineWidth(1.5)
     love.graphics.setColor(gc[1] * 0.7, gc[2] * 0.7, gc[3] * 0.7, 0.50 * self.opacity)
-    love.graphics.circle("line", self.x, self.y, sr)
+    -- circle("line") not supported in LOVE 11; use double-fill for thick line
+    love.graphics.circle("fill", self.x, self.y, sr + 2)
+    love.graphics.circle("fill", self.x, self.y, sr)
     love.graphics.setLineWidth(1)
 
         -- Letter label with drop shadow for readability
@@ -330,13 +332,13 @@ states["menu"] = {
 
                 -- Button background
             love.graphics.setColor(c[1], c[2], c[3], 0.95)
-            love.graphics.rectangle("round", btn.x, btn.y, btn.w, btn.h, 10)
+            love.graphics.rectangle("fill", btn.x, btn.y, btn.w, btn.h, 10)
 
                 -- Button border (brighter on hover)
             love.graphics.setLineWidth(2)
             local bc = (self.hoverIdx == i) and {0.6, 0.8, 1} or {0.35, 0.45, 0.65}
             love.graphics.setColor(bc[1], bc[2], bc[3])
-            love.graphics.rectangle("round", btn.x, btn.y, btn.w, btn.h, 10)
+            love.graphics.rectangle("fill", btn.x, btn.y, btn.w, btn.h, 10)
             love.graphics.setLineWidth(1)
 
                 -- Button text (level name + number hint)
