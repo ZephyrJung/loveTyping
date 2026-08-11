@@ -14,6 +14,28 @@ local function lerp(a, b, t)
     return a + (b - a) * math.min(math.max(t, 0), 1)
 end
 
+--- Convert HSL hue angle (in radians, 0..2PI) to RGB floats in [0, 1].
+local function hslToRgb(hue)
+    local sat = 0.75
+    local lit = 0.55
+    local cVal = (1 - abs(2 * lit - 1)) * sat
+    local xVal = cVal * (1 - abs(math.fmod(hue / math.pi * 3, 2) - 1))
+    local m = lit - cVal / 2
+    if hue < math.pi / 3 then
+        return cVal + m, xVal + m, m
+    elseif hue < math.pi * 2 / 3 then
+        return xVal + m, cVal + m, m
+    elseif hue < math.pi then
+        return m, cVal + m, xVal + m
+    elseif hue < math.pi * 4 / 3 then
+        return m, xVal + m, cVal + m
+    elseif hue < math.pi * 5 / 3 then
+        return xVal + m, m, cVal + m
+    else
+        return cVal + m, m, xVal + m
+    end
+end
+
 --------------------------------------------------------------------------------
 -- Particle system: explosion particles rendered on top of everything.
 --------------------------------------------------------------------------------
