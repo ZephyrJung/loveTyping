@@ -14,26 +14,19 @@ local function lerp(a, b, t)
     return a + (b - a) * math.min(math.max(t, 0), 1)
 end
 
---- Convert HSL hue angle (in radians, 0..2PI) to RGB floats in [0, 1].
+--- Convert HSL hue angle (radians, 0..2pi) to RGB floats in [0, 1].
 local function hslToRgb(hue)
     local sat = 0.75
     local lit = 0.55
     local cVal = (1 - abs(2 * lit - 1)) * sat
     local xVal = cVal * (1 - abs(math.fmod(hue / math.pi * 3, 2) - 1))
     local m = lit - cVal / 2
-    if hue < math.pi / 3 then
-        return cVal + m, xVal + m, m
-    elseif hue < math.pi * 2 / 3 then
-        return xVal + m, cVal + m, m
-    elseif hue < math.pi then
-        return m, cVal + m, xVal + m
-    elseif hue < math.pi * 4 / 3 then
-        return m, xVal + m, cVal + m
-    elseif hue < math.pi * 5 / 3 then
-        return xVal + m, m, cVal + m
-    else
-        return cVal + m, m, xVal + m
-    end
+    if hue < math.pi / 3 then return cVal + m, xVal + m, m
+    elseif hue < math.pi * 2 / 3 then return xVal + m, cVal + m, m
+    elseif hue < math.pi then return m, cVal + m, xVal + m
+    elseif hue < math.pi * 4 / 3 then return m, xVal + m, cVal + m
+    elseif hue < math.pi * 5 / 3 then return xVal + m, m, cVal + m
+    else return cVal + m, m, xVal + m end
 end
 
 --------------------------------------------------------------------------------
@@ -110,21 +103,9 @@ function Sphere:new(letter, x, y)
     s.scale = 1
     s.alive = true
 
-        -- Map letter A(0)..Y(25) into an HSL hue angle for unique coloring.
+        -- Map letter A(0)..Y(25) to RGB via HSL hue angle for unique coloring.
     local hueFrac = (string.byte(letter) - string.byte('A')) / 25
-    local hDeg = hueFrac * 360
-    local sat, lit = 0.75, 0.55
-    local cVal = (1 - abs(2 * lit - 1)) * sat
-    local xVal = cVal * (1 - abs(math.fmod(hDeg / 60, 2) - 1))
-    local m = lit - cVal / 2
-    local r, g, b = 0, 0, 0
-    if hDeg < 60 then r, g, b = cVal, xVal, 0
-    elseif hDeg < 120 then r, g, b = xVal, cVal, 0
-    elseif hDeg < 180 then r, g, b = 0, cVal, xVal
-    elseif hDeg < 240 then r, g, b = 0, xVal, cVal
-    elseif hDeg < 300 then r, g, b = xVal, 0, cVal
-    else r, g, b = cVal, 0, xVal
-    end
+    local r, g, b = hslToRgb(hueFrac * math.pi * 2)
     s.glowColor = {r + m, g + m, b + m}
     return s
 end
@@ -249,7 +230,6 @@ end
 
 states["menu"] = {
     flashAlpha = 0,
-    flashTimer = 1.2,
     hoverIdx = -1, -- track which button is hovered (for keyboard nav)
     mouseClicked = false, -- flag set by love.mousepressed
 
@@ -266,11 +246,6 @@ states["menu"] = {
     end,
 
     onUpdate = function(self, dt)
-            -- Fade entrance flash
-        self.flashTimer = self.flashTimer - dt
-        if self.flashTimer > 0 then
-            self.flashAlpha = math.min(self.flashTimer / 0.4, 1) * 0.25
-        end
 
             -- Mouse hover detection on buttons
         local mx, my = love.mouse.getPosition()
@@ -316,12 +291,6 @@ states["menu"] = {
                                    lerp(0.04, 0.05, t),
                                    lerp(0.10, 0.18, t))
             love.graphics.rectangle("fill", 0, y, w, 1)
-        end
-
-            -- Entrance flash overlay
-        if self.flashAlpha > 0 then
-            love.graphics.setColor(1, 1, 1, self.flashAlpha)
-            love.graphics.rectangle("fill", 0, 0, w, h)
         end
 
             -- Title: "loveTyping" in large white text
@@ -416,9 +385,6 @@ states["level1"] = {
     end,
 
     onUpdate = function(self, dt)
-            -- Fade entrance flash
-        self.flashAlpha = math.max(0, self.flashAlpha - dt * 2)
-
             -- Instructions fade out after ~5 seconds
         self.instructionsTimer = self.instructionsTimer - dt
         if self.instructionsTimer <= 0 then
@@ -488,12 +454,6 @@ states["level1"] = {
                 s.scale = 1
             end
             s:draw()
-        end
-
-            -- Flash overlay on level entry (white flash that fades)
-        if self.flashAlpha > 0 then
-            love.graphics.setColor(1, 1, 1, self.flashAlpha * 0.2)
-            love.graphics.rectangle("fill", 0, 0, w, h)
         end
 
             -- Stats display: count of remaining vs total letters
@@ -585,6 +545,7 @@ states["level1"] = {
 states["level2"] = {
     flashAlpha = 0,
     score = 0,
+    penaltyTimer = 0,     -- cooldown after clearing an overflowed pile
     gameTime = 0,
     spawnTimer = 0,
     spawnInterval = 1.5,
@@ -593,6 +554,7 @@ states["level2"] = {
 
     onEnter = function(self)
         self.score = 0
+        self.penaltyTimer = 0
         self.gameTime = 0
         self.spawnTimer = 0.5
         self.spawnInterval = 1.5
@@ -603,11 +565,11 @@ states["level2"] = {
     onUpdate = function(self, dt)
         self.gameTime = self.gameTime + dt
 
-            -- Difficulty ramps up: spawn faster over time
+             -- Difficulty ramps up: spawn faster over time
         local difficulty = math.min(0.35, 1.5 - self.gameTime * 0.02)
         self.spawnInterval = difficulty
 
-            -- Spawn a new falling sphere periodically
+             -- Spawn a new falling sphere periodically
         self.spawnTimer = self.spawnTimer - dt
         if self.spawnTimer <= 0 then
             local w = love.graphics.getWidth()
@@ -617,50 +579,57 @@ states["level2"] = {
             local sphere = Sphere:new(letter, sx, -40)
             table.insert(self.fallingSpheres, sphere)
 
-                -- Reset timer with slight randomness
+                  -- Reset timer with slight randomness
             self.spawnTimer = self.spawnInterval + math.random(-200, 200) / 1000
         end
 
-            -- Update all falling spheres (gravity + pulse)
+             -- Update all falling spheres (gravity + pulse)
         local gravity = 50
         for i = #self.fallingSpheres, 1, -1 do
             local s = self.fallingSpheres[i]
             s:update(dt)
 
-                -- Apply gravity to vertical velocity
+                  -- Apply gravity to vertical velocity
             s.vy = (s.vy or 30) + gravity * dt
             s.y = s.y + s.vy * dt
 
-                -- Check if fallen past the ground line
+                  -- Check if fallen past the ground line
             local h = love.graphics.getHeight()
             local groundY = h - 120
 
             if s.y > groundY then
-                    -- Landed! Move to pile, remove from falling list
+                     -- Landed! Move to pile, remove from falling list
                 table.insert(self.landedPile, {letter = s.letter, x = s.x, y = groundY})
                 table.remove(self.fallingSpheres, i)
 
-                    -- Game over check: too many landed spheres
-                if #self.landedPile > 12 then
-                    self.flashAlpha = 3
-                        -- Reset pile and score after flash
-                    if self.flashAlpha <= 0 then
-                        self.landedPile = {}
-                        self.fallingSpheres = {}
-                        self.score = math.max(0, self.score - 5)
-                    end
+                      -- Game over check: too many landed spheres --
+                   -- Clear everything at once (no screen flash), give penalty timer
+                if #self.landedPile > 12 and not self.overflowHandled then
+                    self.landedPile = {}
+                    self.fallingSpheres = {}
+                    self.score = math.max(0, self.score - 5)
+                    self.penaltyTimer = 2.0
+                    self.overflowHandled = true
                 end
             end
         end
 
-            -- Flash fade decay
+             -- Flash fade decay (used for hit feedback only)
         self.flashAlpha = math.max(0, self.flashAlpha - dt * 2)
+
+             -- Penalty timer countdown
+        if self.penaltyTimer > 0 then
+            self.penaltyTimer = self.penaltyTimer - dt
+            if self.penaltyTimer <= 0 then
+                self.overflowHandled = false
+            end
+        end
     end,
 
     onDraw = function(self)
         local w, h = love.graphics.getWidth(), love.graphics.getHeight()
 
-            -- Background gradient (dark blue-green for this level)
+             -- Background gradient (dark blue-green for this level)
         for y = 1, h do
             local t = y / h
             love.graphics.setColor(lerp(0.03, 0.05, t),
@@ -669,14 +638,14 @@ states["level2"] = {
             love.graphics.rectangle("fill", 0, y, w, 1)
         end
 
-            -- Draw ground line
+             -- Draw ground line
         local groundY = h - 120
         love.graphics.setLineWidth(2)
         love.graphics.setColor(0.4, 0.5, 0.6, 0.35)
         love.graphics.line(0, groundY, w, groundY)
         love.graphics.setLineWidth(1)
 
-            -- Draw landed pile (static colored circles at bottom)
+             -- Draw landed pile (static colored circles at bottom)
         for _, entry in ipairs(self.landedPile) do
             local hue = ((string.byte(entry.letter) - 65) / 25) * math.pi * 2
             local r, g, b = hslToRgb(hue)
@@ -684,31 +653,30 @@ states["level2"] = {
             love.graphics.circle("fill", entry.x, entry.y - 18, 24)
         end
 
-            -- Draw falling spheres on top
+             -- Draw falling spheres on top
         for _, s in ipairs(self.fallingSpheres) do
             s:draw()
         end
 
-            -- Title bar with score
+             -- Title bar with score
         love.graphics.setFont(love.graphics.newFont(14))
         love.graphics.setColor(0.35, 0.42, 0.55, 0.6)
         local pileCount = #self.landedPile
-        local dangerAlpha = pileCount >= 9 and (math.sin(self.gameTime * 8) * 0.3 + 0.7) or 1
         local titleText = "Level 2 -- Falling Letters"
         if pileCount > 0 then
-            titleText = titleText .. "     | Pile: " .. pileCount
+            titleText = titleText .. "       | Pile: " .. math.min(pileCount, 99)
         end
         love.graphics.printf(titleText, w / 2, 28, w * 0.65, "center")
 
-            -- Score display
-        love.graphics.setFont(love.graphics.newFont(16))
+             -- Score display (subtle green)
         local scoreAlpha = math.min(1, self.gameTime * 0.5)
         if self.score > 0 or scoreAlpha >= 1 then
-            love.graphics.setColor(0.45, 0.70, 0.90, scoreAlpha)
+            love.graphics.setFont(love.graphics.newFont(16))
+            love.graphics.setColor(0.35, 0.65, 0.40, scoreAlpha)
             love.graphics.printf("Score: " .. self.score, w / 2 - 60, 48, 120, "center")
         end
 
-            -- Falling speed indicator bar
+             -- Falling speed indicator bar (no flash, just progress)
         local speedPercent = math.min(100, math.floor(self.gameTime / 2.5))
         love.graphics.setFont(love.graphics.newFont(13))
         love.graphics.setColor(0.30, 0.35, 0.42, 0.50)
@@ -717,7 +685,7 @@ states["level2"] = {
         if speedPercent > 0 then
             love.graphics.setColor(lerp(0.4, 0.85, speedPercent / 100),
                                    lerp(0.7, 0.3, speedPercent / 100),
-                                   0.35, 0.7)
+                                     0.35, 0.7)
             love.graphics.rectangle("fill", w / 2 - barW / 2, h - 60,
                                     barW * (speedPercent / 100), 8)
         end
@@ -726,43 +694,39 @@ states["level2"] = {
         love.graphics.printf("Speed: " .. speedPercent .. "%",
                              w / 2, h - 40, w * 0.5, "center")
 
-            -- Flash overlay on game-over (too many piled up)
-        if self.flashAlpha > 0 then
-            love.graphics.setColor(0.7, 0.2, 0.2, self.flashAlpha * 0.3)
-            love.graphics.rectangle("fill", 0, 0, w, h)
-
-            if self.flashAlpha > 2.5 then
-                    -- Show game over message briefly
-                love.graphics.setFont(love.graphics.newFont(24))
-                love.graphics.setColor(1, 0.3, 0.3, math.min(1, (self.flashAlpha - 2.5) * 4))
-                love.graphics.printf("Too Many Landed!", w / 2, h / 2 - 30, w * 0.7, "center")
-            end
+             -- Subtle overflow warning near ground (no screen flash)
+        if self.penaltyTimer and self.penaltyTimer > 0 then
+            local hintAlpha = math.min(1, self.penaltyTimer) * 0.35
+            love.graphics.setFont(love.graphics.newFont(14))
+            love.graphics.setColor(0.50, 0.35, 0.25, hintAlpha)
+            love.graphics.printf("Pile cleared!    " .. math.ceil(self.penaltyTimer) .. "s",
+                                 w / 2, h / 2 + 60, w * 0.5, "center")
         end
 
-            -- Esc hint
+             -- Esc hint (always visible at bottom)
         love.graphics.setFont(love.graphics.newFont(13))
         love.graphics.setColor(0.30, 0.35, 0.42, 0.50)
         love.graphics.printf("Press Esc to go back", w / 2, h - 15, w * 0.6, "center")
 
-            -- Draw explosion particles on top of everything
+             -- Draw explosion particles on top of everything
         for _, p in ipairs(explosionParticles) do
             p:draw()
         end
     end,
 
     onKeyReleased = function(self, key)
-            -- Esc goes back to menu
+             -- Esc goes back to menu
         if key == "escape" then
             changeState("menu")
             return
         end
 
-            -- Only respond to single letter keys (A-Z / a-z)
+             -- Only respond to single letter keys (A-Z / a-z)
         if not key:match("^%a$") then return end
 
         local upperKey = string.upper(key)
 
-            -- Find matching falling sphere closest to the bottom (most urgent)
+             -- Find matching falling sphere closest to the bottom (most urgent)
         local bestIdx = nil
         local bestY = -9999
 
@@ -774,37 +738,36 @@ states["level2"] = {
             end
         end
 
-            -- If no falling sphere matches, try landed pile (destroy one for points)
+             -- If no falling sphere matches, try landed pile (destroy one)
         if not bestIdx then
             for i = #self.landedPile, 1, -1 do
                 if self.landedPile[i].letter == upperKey then
                     table.remove(self.landedPile, i)
-                        -- Small success: remove from pile (less satisfying)
+                     -- Small success: remove from pile (less satisfying)
                     return
                 end
             end
             return -- No matching sphere found at all
         end
 
-            -- Found it! Explosion!
+             -- Found it! Explosion!
         local target = self.fallingSpheres[bestIdx]
         addExplosion(target.x, target.y, 1, 0.7, 0.4, 50)
 
-            -- Remove from falling spheres
+             -- Remove from falling spheres
         table.remove(self.fallingSpheres, bestIdx)
 
-            -- Score increases more for harder-to-reach (lower) spheres
+             -- Score increases more for harder-to-reach (lower) spheres
         local h = love.graphics.getHeight()
         local difficulty = math.max(1, (h - 120 - target.y + 200) / (h * 0.4))
         self.score = self.score + math.floor(difficulty + 0.5)
 
-            -- Flash on successful hit
-        self.flashAlpha = 0.8
+             -- Brief flash on successful hit (subtle, max 15% alpha)
+        self.flashAlpha = 0.15
     end,
 }
 
---------------------------------------------------------------------------------
--- LEVEL 3: TIMED CHALLENGE -- type words quickly before timer runs out.
+
 --------------------------------------------------------------------------------
 
 states["level3"] = {
@@ -916,7 +879,7 @@ states["level3"] = {
 
                     -- Flash overlay on word completion
                 if self.flashAlpha > 0 then
-                    love.graphics.setColor(0.25, 0.50, 0.30, self.flashAlpha * 0.12)
+                    love.graphics.setColor(0.25, 0.50, 0.30, self.flashAlpha * 0.05)
                     love.graphics.rectangle("fill", 0, 0, w, h)
                 end
 
