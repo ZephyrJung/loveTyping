@@ -556,213 +556,228 @@ states["level1"] = {
 }
 
 --------------------------------------------------------------------------------
--- LEVEL 2: WORDS -- type words from a queue; sparkle on correct letter.
+-- LEVEL 2: FALLING LETTERS -- spheres drop from above, press to explode!
+-- Don't let them pile up on the ground or it's game over.
 --------------------------------------------------------------------------------
 
 states["level2"] = {
-    wordList = {"love", "code", "type", "fast", "easy", "help", "jump",
-                "king", "lucky", "magic", "night", "power", "quiet", "swift",
-                "apple", "bread", "chair", "dream", "earth", "flame", "grape",
-                "heart", "jewel", "knife", "music", "world"},
-    currentWord = nil,
-    typedProgress = 0, -- number of correct chars typed so far
-    wordQueue = {}, -- words drifting down in the background
     flashAlpha = 0,
     score = 0,
+    gameTime = 0,
+    spawnTimer = 0,
+    spawnInterval = 1.5,
+    fallingSpheres = {},
+    landedPile = {},
 
     onEnter = function(self)
-        self.currentWord = nil
-        self.typedProgress = 0
         self.score = 0
-
-            -- Shuffle the word list for variety
-        local shuffled = {}
-        for i = 1, #self.wordList do
-            table.insert(shuffled, self.wordList[i])
-        end
-        for i = #shuffled, 2, -1 do
-            local j = math.random(i)
-            shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
-        end
-
-            -- Preload first few words into the background queue
-        self.wordQueue = {}
-        for i = 1, math.min(4, #shuffled) do
-            table.insert(self.wordQueue, {text = shuffled[i], y = (i - 1) * 50, opacity = 0.6})
-        end
-
-            -- Set the first word as active target to type
-        if #shuffled > 0 then self.currentWord = shuffled[1] end
+        self.gameTime = 0
+        self.spawnTimer = 0.5
+        self.spawnInterval = 1.5
+        self.fallingSpheres = {}
+        self.landedPile = {}
     end,
 
     onUpdate = function(self, dt)
+        self.gameTime = self.gameTime + dt
+
+            -- Difficulty ramps up: spawn faster over time
+        local difficulty = math.min(0.35, 1.5 - self.gameTime * 0.02)
+        self.spawnInterval = difficulty
+
+            -- Spawn a new falling sphere periodically
+        self.spawnTimer = self.spawnTimer - dt
+        if self.spawnTimer <= 0 then
+            local w = love.graphics.getWidth()
+            local letterIdx = math.random(26)
+            local letter = string.char(letterIdx + 64) -- A-Z
+            local sx = math.random(80, w - 80)
+            local sphere = Sphere:new(letter, sx, -40)
+            table.insert(self.fallingSpheres, sphere)
+
+                -- Reset timer with slight randomness
+            self.spawnTimer = self.spawnInterval + math.random(-200, 200) / 1000
+        end
+
+            -- Update all falling spheres (gravity + pulse)
+        local gravity = 50
+        for i = #self.fallingSpheres, 1, -1 do
+            local s = self.fallingSpheres[i]
+            s:update(dt)
+
+                -- Apply gravity to vertical velocity
+            s.vy = (s.vy or 30) + gravity * dt
+            s.y = s.y + s.vy * dt
+
+                -- Check if fallen past the ground line
+            local h = love.graphics.getHeight()
+            local groundY = h - 120
+
+            if s.y > groundY then
+                    -- Landed! Move to pile, remove from falling list
+                table.insert(self.landedPile, {letter = s.letter, x = s.x, y = groundY})
+                table.remove(self.fallingSpheres, i)
+
+                    -- Game over check: too many landed spheres
+                if #self.landedPile > 12 then
+                    self.flashAlpha = 3
+                        -- Reset pile and score after flash
+                    if self.flashAlpha <= 0 then
+                        self.landedPile = {}
+                        self.fallingSpheres = {}
+                        self.score = math.max(0, self.score - 5)
+                    end
+                end
+            end
+        end
+
             -- Flash fade decay
-        self.flashAlpha = math.max(0, self.flashAlpha - dt * 3)
-
-            -- Drift queue words downward slowly
-        for idx = 1, #self.wordQueue do
-            self.wordQueue[idx].y = self.wordQueue[idx].y + dt * 10
-        end
-
-            -- Remove off-screen words and refill when needed
-        while (#self.wordQueue > 0 and self.wordQueue[1].y > love.graphics.getHeight() - 80) do
-            table.remove(self.wordQueue, 1)
-        end
-
-        if #self.wordQueue < 3 then
-            local shuffled = {}
-            for i = 1, #self.wordList do
-                table.insert(shuffled, self.wordList[i])
-            end
-            for i = #shuffled, 2, -1 do
-                local j = math.random(i)
-                shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
-            end
-            for idx = 1, #shuffled do
-                table.insert(self.wordQueue, {text = shuffled[idx], y = 0})
-            end
-        end
+        self.flashAlpha = math.max(0, self.flashAlpha - dt * 2)
     end,
 
     onDraw = function(self)
         local w, h = love.graphics.getWidth(), love.graphics.getHeight()
 
-            -- Background gradient (dark greenish tint for this level)
+            -- Background gradient (dark blue-green for this level)
         for y = 1, h do
             local t = y / h
-            love.graphics.setColor(lerp(0.03, 0.06, t),
+            love.graphics.setColor(lerp(0.03, 0.05, t),
                                    lerp(0.04, 0.07, t),
                                    lerp(0.06, 0.10, t))
             love.graphics.rectangle("fill", 0, y, w, 1)
         end
 
-            -- Title bar with score display
+            -- Draw ground line
+        local groundY = h - 120
+        love.graphics.setLineWidth(2)
+        love.graphics.setColor(0.4, 0.5, 0.6, 0.35)
+        love.graphics.line(0, groundY, w, groundY)
+        love.graphics.setLineWidth(1)
+
+            -- Draw landed pile (static colored circles at bottom)
+        for _, entry in ipairs(self.landedPile) do
+            local hue = ((string.byte(entry.letter) - 65) / 25) * math.pi * 2
+            local r, g, b = hslToRgb(hue)
+            love.graphics.setColor(r * 0.6, g * 0.6, b * 0.6, 0.7)
+            love.graphics.circle("fill", entry.x, entry.y - 18, 24)
+        end
+
+            -- Draw falling spheres on top
+        for _, s in ipairs(self.fallingSpheres) do
+            s:draw()
+        end
+
+            -- Title bar with score
         love.graphics.setFont(love.graphics.newFont(14))
         love.graphics.setColor(0.35, 0.42, 0.55, 0.6)
-        love.graphics.printf("Level 2 -- Words     Score: " .. self.score
-                             .. "    Press Esc to go back",
-                             w / 2, 28, w * 0.9, "center")
+        local pileCount = #self.landedPile
+        local dangerAlpha = pileCount >= 9 and (math.sin(self.gameTime * 8) * 0.3 + 0.7) or 1
+        local titleText = "Level 2 -- Falling Letters"
+        if pileCount > 0 then
+            titleText = titleText .. "     | Pile: " .. pileCount
+        end
+        love.graphics.printf(titleText, w / 2, 28, w * 0.65, "center")
 
-            -- Draw queue words drifting in the background
-        for idx = 1, #self.wordQueue do
-            local wordEntry = self.wordQueue[idx]
-                -- Skip drawing the active word in the background queue
-            if not (self.currentWord and wordEntry.text == self.currentWord) then
-                love.graphics.setFont(love.graphics.newFont(18))
-                love.graphics.setColor(0.35, 0.42, 0.55, wordEntry.opacity * 0.6)
-                love.graphics.printf(wordEntry.text, w / 2,
-                                     70 + idx * 50, w * 0.5, "center")
-            end
+            -- Score display
+        love.graphics.setFont(love.graphics.newFont(16))
+        local scoreAlpha = math.min(1, self.gameTime * 0.5)
+        if self.score > 0 or scoreAlpha >= 1 then
+            love.graphics.setColor(0.45, 0.70, 0.90, scoreAlpha)
+            love.graphics.printf("Score: " .. self.score, w / 2 - 60, 48, 120, "center")
         end
 
-            -- Active word: large and prominent in center of screen
-        if self.currentWord then
-            local cw = self.currentWord
-            local typedStr = cw:sub(1, self.typedProgress)
-
-                -- Progress bar above the word (fills as you type correctly)
-            love.graphics.setLineWidth(4)
-            love.graphics.setColor(0.2, 0.28, 0.38, 1)
-            love.graphics.rectangle("fill", w / 2 - 100, 50, 200, 6)
-            if #typedStr > 0 then
-                local progress = #typedStr / #cw
-                love.graphics.setColor(0.3, 0.65, 0.4, 1)
-                love.graphics.rectangle("fill", w / 2 - 100, 50, 200 * progress, 6)
-            end
-            love.graphics.setLineWidth(1)
-
-                -- Render typed portion in green, untyped remainder in dim gray
-            local font = love.graphics.newFont(44)
-            love.graphics.setFont(font)
-            local startX = w / 2 - #cw * 13
-
-            for idx = 1, #typedStr do
-                love.graphics.setColor(0.35, 0.70, 0.40, 1)
-                love.graphics.printf(typedStr:sub(idx, idx),
-                                     startX + (idx - 1) * 26, h / 2 - 10, 0, "left")
-            end
-            for idx = #typedStr + 1, #cw do
-                love.graphics.setColor(0.40, 0.45, 0.58, 0.50)
-                love.graphics.printf(cw:sub(idx, idx),
-                                     startX + (idx - 1) * 26, h / 2 - 10, 0, "left")
-            end
-
-                -- Flash overlay on word completion
-            if self.flashAlpha > 0 then
-                love.graphics.setColor(0.3, 0.6, 0.35, self.flashAlpha * 0.12)
-                love.graphics.rectangle("fill", 0, 0, w, h)
-            end
-
-        else
-                -- Prompt to start typing
-            local promptAlpha = math.sin(love.timer.getTime() * 3) * 0.3 + 0.5
-            love.graphics.setFont(love.graphics.newFont(16))
-            love.graphics.setColor(0.45, 0.55, 0.70, promptAlpha)
-            love.graphics.printf("Start typing to begin!", w / 2, h - 70, w * 0.4, "center")
-        end
-
-            -- Bottom hint showing queue status
+            -- Falling speed indicator bar
+        local speedPercent = math.min(100, math.floor(self.gameTime / 2.5))
         love.graphics.setFont(love.graphics.newFont(13))
         love.graphics.setColor(0.30, 0.35, 0.42, 0.50)
-        love.graphics.printf("Queue: " .. #self.wordQueue .. " words",
-                             w / 2, h - 30, w * 0.6, "center")
+        local barW = w * 0.3
+        love.graphics.rectangle("fill", w / 2 - barW / 2, h - 60, barW, 8)
+        if speedPercent > 0 then
+            love.graphics.setColor(lerp(0.4, 0.85, speedPercent / 100),
+                                   lerp(0.7, 0.3, speedPercent / 100),
+                                   0.35, 0.7)
+            love.graphics.rectangle("fill", w / 2 - barW / 2, h - 60,
+                                    barW * (speedPercent / 100), 8)
+        end
+        love.graphics.setColor(0.30, 0.35, 0.42, 0.50)
+        love.graphics.rectangle("line", w / 2 - barW / 2, h - 60, barW, 8)
+        love.graphics.printf("Speed: " .. speedPercent .. "%",
+                             w / 2, h - 40, w * 0.5, "center")
 
-            -- Draw particles on top
-        for _, p in ipairs(explosionParticles) do p:draw() end
+            -- Flash overlay on game-over (too many piled up)
+        if self.flashAlpha > 0 then
+            love.graphics.setColor(0.7, 0.2, 0.2, self.flashAlpha * 0.3)
+            love.graphics.rectangle("fill", 0, 0, w, h)
+
+            if self.flashAlpha > 2.5 then
+                    -- Show game over message briefly
+                love.graphics.setFont(love.graphics.newFont(24))
+                love.graphics.setColor(1, 0.3, 0.3, math.min(1, (self.flashAlpha - 2.5) * 4))
+                love.graphics.printf("Too Many Landed!", w / 2, h / 2 - 30, w * 0.7, "center")
+            end
+        end
+
+            -- Esc hint
+        love.graphics.setFont(love.graphics.newFont(13))
+        love.graphics.setColor(0.30, 0.35, 0.42, 0.50)
+        love.graphics.printf("Press Esc to go back", w / 2, h - 15, w * 0.6, "center")
+
+            -- Draw explosion particles on top of everything
+        for _, p in ipairs(explosionParticles) do
+            p:draw()
+        end
     end,
 
     onKeyReleased = function(self, key)
+            -- Esc goes back to menu
         if key == "escape" then
             changeState("menu")
             return
         end
 
-            -- Only process alphabetic keys (A-Z)
+            -- Only respond to single letter keys (A-Z / a-z)
         if not key:match("^%a$") then return end
-        if not self.currentWord then return end
 
-        local expected = self.currentWord:sub(
-            self.typedProgress + 1, self.typedProgress + 1):upper()
-        local pressed = string.upper(key)
+        local upperKey = string.upper(key)
 
-        if pressed == expected then
-                -- Correct: increment progress and add sparkle particles
-            self.typedProgress = self.typedProgress + 1
+            -- Find matching falling sphere closest to the bottom (most urgent)
+        local bestIdx = nil
+        local bestY = -9999
 
-                -- Small sparkle burst for each correct keystroke
-            local cx = love.graphics.getWidth() / 2 - #self.currentWord * 13
-                        + (self.typedProgress - 1) * 26
-            local cy = love.graphics.getHeight() / 2
-            addExplosion(cx, cy, 0.35, 0.7, 0.4, 8)
-
-                -- Word completed? Move to next word
-            if self.typedProgress >= #self.currentWord then
-                    -- Celebration burst at center of screen
-                local cx2 = love.graphics.getWidth() / 2
-                addExplosion(cx2, love.graphics.getHeight() / 2 - 30,
-                             0.3, 0.9, 0.5, 55)
-                self.flashAlpha = 1
-                self.score = self.score + 1
-
-                    -- Pick next word from queue or refill if empty
-                if #self.wordQueue > 0 then
-                    self.currentWord = table.remove(self.wordQueue, 1)
-                else
-                        -- Refill queue and set new target word
-                    local shuffled = {}
-                    for i = 1, #self.wordList do
-                        table.insert(shuffled, self.wordList[i])
-                    end
-                    for i = #shuffled, 2, -1 do
-                        local j = math.random(i)
-                        shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
-                    end
-                    self.currentWord = table.remove(shuffled, 1)
-                end
-                self.typedProgress = 0
+        for i = 1, #self.fallingSpheres do
+            local s = self.fallingSpheres[i]
+            if s.letter == upperKey and s.y > bestY then
+                bestIdx = i
+                bestY = s.y
             end
         end
-            -- Wrong letters: currently no visual feedback (could add red flash)
+
+            -- If no falling sphere matches, try landed pile (destroy one for points)
+        if not bestIdx then
+            for i = #self.landedPile, 1, -1 do
+                if self.landedPile[i].letter == upperKey then
+                    table.remove(self.landedPile, i)
+                        -- Small success: remove from pile (less satisfying)
+                    return
+                end
+            end
+            return -- No matching sphere found at all
+        end
+
+            -- Found it! Explosion!
+        local target = self.fallingSpheres[bestIdx]
+        addExplosion(target.x, target.y, 1, 0.7, 0.4, 50)
+
+            -- Remove from falling spheres
+        table.remove(self.fallingSpheres, bestIdx)
+
+            -- Score increases more for harder-to-reach (lower) spheres
+        local h = love.graphics.getHeight()
+        local difficulty = math.max(1, (h - 120 - target.y + 200) / (h * 0.4))
+        self.score = self.score + math.floor(difficulty + 0.5)
+
+            -- Flash on successful hit
+        self.flashAlpha = 0.8
     end,
 }
 
