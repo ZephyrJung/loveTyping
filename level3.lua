@@ -186,6 +186,8 @@ M.onEnter = function(self)
     M._gameTime = 0
     M.copOffset = -50                 -- cop distance from thief (px behind)
     M.gameState = "running"           -- running | won | caught
+    M.copProgress = -15               -- starts 15% of road behind
+    M.copDelayTimer = 3.0           -- seconds before cop starts
 
           -- Camera state: how much the map is shifted.
     M.camOffsetX = 0
@@ -210,10 +212,17 @@ M.onUpdate = function(self, dt)
         M.stumbleTimer = (M.stumbleTimer or 0) - dt
     end
 
-          -- Slowly close the cop's distance over time (pressure mechanic).
-    local chaseRate = 5 + math.max(0, M.copOffset or 0) * 0.3
-    M.copOffset = (M.copOffset or 0) + chaseRate * dt
-
+             -- Cop only chases after countdown finishes
+             if (M.copDelayTimer or 0) <= 0 then
+                 M.copDelayTimer = 0
+                 local copSpeed = 25
+                 local thiefProgVal = (M.thiefProgress or 0)
+                 if (M.copProgress or 0) < thiefProgVal then
+                     M.copProgress = math.min(thiefProgVal, (M.copProgress or 0) + copSpeed * dt)
+                 end
+             else
+                 M.copDelayTimer = math.max(0, (M.copDelayTimer or 0) - dt)
+             end
           -- Combo decays slowly (encourages continuous typing).
     M.comboCount = math.max(0, (M.comboCount or 0) - 0.08 * dt)
 
@@ -224,9 +233,8 @@ M.onUpdate = function(self, dt)
         M.gameState = "won"
         return
     end
-    if (M.copOffset or 0) >= 12 then
+    if (M.copProgress or 0) >= (M.thiefProgress or 0) then
         M.gameState = "caught"
-        return
     end
 end
 
@@ -309,14 +317,13 @@ M.onDraw = function(self)
 
                -- Draw all road characters. High contrast for visibility.
                if i == thiefIdx then
-                   -- Target: BRIGHT GOLD with dark outline (always visible)
-                   love.graphics.setColor(0.12, 0.12, 0.18)
-                   love.graphics.printf(ch, spx+3, spy+3, 24*sc, 'center')
-                   love.graphics.printf(ch, spx-3, spy-3, 24*sc, 'center')
-                   love.graphics.printf(ch, spx+3, spy-3, 24*sc, 'center')
-                   love.graphics.printf(ch, spx-3, spy+3, 24*sc, 'center')
-                   love.graphics.setColor(0.95, 0.80, 0.15)
-                   love.graphics.printf(ch, spx, spy, 24*sc, 'center')
+                   -- Target: gold character with white hollow circle
+                   love.graphics.setLineWidth(2 * sc)
+                   love.graphics.setColor(1.0, 1.0, 1.0)
+                   love.graphics.circle('line', spx, spy, 16 * sc)
+                   love.graphics.setLineWidth(1)
+                   love.graphics.setColor(1.0, 0.85, 0.1)
+                   love.graphics.printf(ch, spx, spy, 24 * sc, 'center')
                elseif i < thiefIdx then
                    -- Typed: GREEN character (no outline, small glow only)
                    love.graphics.setColor(0.15, 0.65, 0.15)
@@ -398,12 +405,9 @@ M.onDraw = function(self)
           -- === COP CHARACTER ===
           -- Blue circle with gold badge dot, hat brim, chasing behind.
     if #waypoints >= 2 then
-        local dirA = math.atan2(waypoints[#waypoints].y - waypoints[1].y,
-                                waypoints[#waypoints].x - waypoints[1].x)
-              -- Cop sits behind the thief along the road direction.
-        local copDist = math.max(0, -(M.copOffset or 0)) * sc
-        local cpx = thiefSx + math.cos(dirA + math.pi) * copDist
-        local cpy = thiefSy + math.sin(dirA + math.pi) * copDist
+               -- Cop follows the character path. Position based on copProgress.
+        local cProg = math.max(0, (M.copProgress or 0))
+        local cpx, cpy = _road_pos(cProg)
         local copR = 8 * sc
 
               -- Only draw cop if visible on screen.
@@ -497,6 +501,17 @@ M.onDraw = function(self)
         love.graphics.printf("Press Esc to flee back", w / 2 - 20 * sc, escY,
                                 40 * sc, "center")
     end
+
+    -- Countdown: cop starts chasing after delay
+    if (M.copDelayTimer or 0) > 0 then
+        local w, h = love.graphics.getWidth(), love.graphics.getHeight()
+        local cnt = math.ceil(M.copDelayTimer)
+        local bigFont = love.graphics.newFont(math.max(16, 40 * M._sc))
+        love.graphics.setFont(bigFont)
+        love.graphics.setColor(0.15, 0.15, 0.25, math.min(1, (M.copDelayTimer or 0) * 0.3))
+        love.graphics.printf("GET READY! " .. tostring(cnt), w / 2, h / 2,
+                                 w * 0.6, "center")
+    end
 end
 
 M.onKeyReleased = function(self, key)
@@ -537,7 +552,6 @@ M.onKeyReleased = function(self, key)
         M.comboCount = 0
         M.stumbleTimer = 0.6                     -- brief freeze frames
         M.thiefProgress = math.max(0, (M.thiefProgress or 0) - 0.01)
-        M.copOffset = (M.copOffset or 0) + 3
 
                 -- Red particle burst at thief position.
         local tx, ty = _road_pos((M.thiefProgress or 0) + 0.01)
