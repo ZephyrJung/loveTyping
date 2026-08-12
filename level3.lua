@@ -63,7 +63,7 @@ local function generate_map()
 
             -- Straight Manhattan-style interpolation (no curves).
         local segLen = math.sqrt(dx * dx + dy * dy)
-        local totalPts = math.floor(segLen / 30)     -- spacing ~4 world pixels
+        local totalPts = math.floor(segLen / 15)      -- spacing ~15 world pixels     -- spacing ~4 world pixels
         for pIdx = 1, totalPts do
             local t = pIdx / totalPts
             wp[#wp + 1] = {x = p1.x + dx * t, y = p1.y + dy * t}
@@ -307,33 +307,26 @@ M.onDraw = function(self)
               local spy = s_y(py)
               local ch = chars[i]
 
-              if i == thiefIdx then
-                     -- Current target: bright green with pulsing glow.
-                  local gt = M._gameTime or 0
-                  local pulse = math.sin(gt * 6) * 0.2 + 0.8
-                  love.graphics.setLineWidth(3 * sc)
-                  love.graphics.setColor(0.25, 0.60, 0.30, pulse)
-                  love.graphics.circle("fill", spx, spy, 10 * sc)
-                  love.graphics.setColor(0.15, 0.20, 0.15, pulse * 0.4)
-                  love.graphics.circle("fill", spx, spy, 15 * sc)
-                  love.graphics.setLineWidth(1)
-                  love.graphics.setColor(0.05, 0.85, 0.05, 1.0)
-              elseif i < thiefIdx then
-                     -- Already passed: GREEN characters (typed).
-                  love.graphics.setLineWidth(1 * sc)
-                  love.graphics.setColor(0.20, 0.70, 0.20, 1.0)
-                  love.graphics.setLineWidth(1)
-              else
-                     -- Upcoming: RED characters (not yet typed).
-                  love.graphics.setLineWidth(1 * sc)
-                  love.graphics.setColor(0.85, 0.15, 0.15, 1.0)
-                  love.graphics.setLineWidth(1)
-              end
+               -- Draw all road characters. High contrast for visibility.
+               if i == thiefIdx then
+                   -- Target: BRIGHT GOLD with dark outline (always visible)
+                   love.graphics.setColor(0.12, 0.12, 0.18)
+                   love.graphics.printf(ch, spx+3, spy+3, 24*sc, 'center')
+                   love.graphics.printf(ch, spx-3, spy-3, 24*sc, 'center')
+                   love.graphics.printf(ch, spx+3, spy-3, 24*sc, 'center')
+                   love.graphics.printf(ch, spx-3, spy+3, 24*sc, 'center')
+                   love.graphics.setColor(0.95, 0.80, 0.15)
+                   love.graphics.printf(ch, spx, spy, 24*sc, 'center')
+               elseif i < thiefIdx then
+                   -- Typed: GREEN character (no outline, small glow only)
+                   love.graphics.setColor(0.15, 0.65, 0.15)
+                   love.graphics.printf(ch, spx, spy, 24*sc, 'center')
+               else
+                   -- Untyped: RED character (waiting)
+                   love.graphics.setColor(0.90, 0.15, 0.15)
+                   love.graphics.printf(ch, spx, spy, 24*sc, 'center')
+               end
 
-                     -- Draw the character: clear readable size.
-              local fontSize = math.max(8, math.floor(16 * sc))
-              love.graphics.setFont(love.graphics.newFont(fontSize))
-              love.graphics.printf(ch, spx, spy, 20 * sc, "center", 0.5)
           end
 
            -- Draw road edge markers (start / exit).
