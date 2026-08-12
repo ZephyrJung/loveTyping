@@ -548,8 +548,6 @@ states["level2"] = {
     currentTier = 1,                -- 1=slow (default), 2=medium, 3=fast
     gameTime = 0,
     spawnTimer = 0.5,
-    safeWindowDuration = 6,         -- seconds of clean play needed to advance
-    safeWindowStart = 0,            -- when clean play began (<5 on screen)
     flashAlpha = 0,                           -- screen flash on hit
     score = 0,
     fallingSpheres = {},                -- active falling spheres
@@ -603,30 +601,7 @@ states["level2"] = {
             end
         end
 
-          --- Safe window tracking: < 5 on screen and no overflow
-        local onScreenCount = #self.fallingSpheres
-        if onScreenCount < 5 and self.overflowCount == 0 then
-              -- Clean play: no overflow, less than 5 on screen
-            if self.safeWindowStart == 0 then
-                self.safeWindowStart = self.gameTime
-            else
-                local cleanDuration = self.gameTime - self.safeWindowStart
-                if cleanDuration >= self.safeWindowDuration then
-                      -- Sufficient clean play to advance tier!
-                    if self.currentTier < 3 then
-                        self.currentTier = self.currentTier + 1
-
-                          -- Keep safe window open for next tier too
-                    else
-                          -- Reached max tier; keep the window open
-                    end
-                    self.safeWindowStart = 0 -- reset for next advancement
-                end
-            end
-        else
-              -- Reset safe window on any overflow or high count
-            self.safeWindowStart = 0
-        end
+      -- Safe window tracking removed; tier is fully user-controlled via bottom-right buttons.
 
           --- Flash fade decay (subtle green flash on hit only)
         self.flashAlpha = math.max(0, self.flashAlpha - dt * 3)
@@ -685,30 +660,7 @@ states["level2"] = {
         love.graphics.rectangle("line", w / 2 - barW / 2, h - 60, barW, 8)
         love.graphics.printf("Tier: " .. math.min(3, self.currentTier) .. "/3", w / 2, h - 40, w * 0.5, "center")
 
-          --- Subtle tier hint when approaching next speed
-        if self.safeWindowStart > 0 then
-            local cleanSec = (self.gameTime - self.safeWindowStart)
-            local hintAlpha = math.min(1, cleanSec / self.safeWindowDuration) * 0.7
-            love.graphics.setFont(love.graphics.newFont(16))
 
-              -- Tier advancement message
-            if cleanSec >= self.safeWindowDuration then
-                local nextNames = {"Medium", "Fast", ""}
-                local nextTier = math.min(self.currentTier + 1, 3)
-                love.graphics.setColor(0.50, 0.80, 0.40, hintAlpha)
-                love.graphics.printf("Next tier: " .. nextNames[nextTier] .. "! Press any key to confirm", w / 2, h / 2 - 20, w * 0.6, "center")
-            else
-                local pct = math.floor(cleanSec / self.safeWindowDuration * 100)
-                love.graphics.setColor(0.50, 0.75, 0.40, hintAlpha)
-                love.graphics.printf("Almost next tier! (" .. pct .. "% clean play)", w / 2, h / 2 - 20, w * 0.5, "center")
-            end
-        elseif self.overflowCount > 0 then
-              -- Overflow warning (no screen flash)
-            local hintAlpha = math.min(1, self.overflowCount / 5) * 0.6
-            love.graphics.setFont(love.graphics.newFont(14))
-            love.graphics.setColor(0.70, 0.35, 0.25, hintAlpha)
-            love.graphics.printf("Overflow: " .. self.overflowCount .. " -- type faster!", w / 2, h / 2 + 40, w * 0.5, "center")
-        end
 
           --- Tier selector buttons (bottom-right)
         local btnH = 28
@@ -1424,7 +1376,6 @@ love.mousepressed = function(x, y, button)
             if x >= cbx and x <= cbx + bW and y >= by and y <= by + bH then
                 states["level2"].currentTier = i
                 states["level2"].overflowCount = 0
-                states["level2"].safeWindowStart = 0
             end
         end
     end
