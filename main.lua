@@ -34,14 +34,14 @@ end
 love.draw = function()
          -- Draw the active state's visual content
     if states[currentStateName] and states[currentStateName].onDraw then
-        states[currentStateName]:onDraw()
+        states[currentStateName].onDraw(states[currentStateName])
     end
 end
 
 love.keyreleased = function(key)
          -- Route key events to the active state
     if states[currentStateName] and states[currentStateName].onKeyReleased then
-        states[currentStateName]:onKeyReleased(key)
+        states[currentStateName].onKeyReleased(states[currentStateName], key)
     end
 end
 

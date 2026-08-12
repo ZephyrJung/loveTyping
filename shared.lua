@@ -202,11 +202,11 @@ currentStateName = nil             -- read/written by changeState + main.lua
 --- Switch to a named state; calls onExit of old and onEnter of new.
 local function changeState(name)
     if states[currentStateName] and states[currentStateName].onExit then
-        states[currentStateName]:onExit()
+        states[currentStateName].onExit(states[currentStateName])
     end
     currentStateName = name
     if states[name] and states[name].onEnter then
-        states[name]:onEnter()
+        states[name].onEnter(states[name])
     end
 end
 

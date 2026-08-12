@@ -83,7 +83,7 @@ states["menu"] = {
             local names = {"Intro", "Words", "Timed"}
             local descs = {"A-Z letters as glowing spheres",
                             "Type words as prompted",
-                            "Beat the clock challenge"}
+                             "Flee through a city as a thief, chased by a cop!"}
             local c = (self.hoverIdx == i) and {0.3, 0.4, 0.7} or {0.12, 0.16, 0.30}
 
                   -- Glow effect on hover
