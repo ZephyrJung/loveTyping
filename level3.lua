@@ -181,12 +181,11 @@ M.onEnter = function(self)
 
           -- Thief progress: 0.0 (start) to 1.0 (exit).
     M.thiefProgress = 0
+    M.step = 0                            -- characters typed
     M.comboCount = 0                  -- consecutive correct keystrokes
     M.stumbleTimer = 0                -- brief freeze after wrong key
     M._gameTime = 0
-    M.copOffset = -50                 -- cop distance from thief (px behind)
-    M.gameState = "running"           -- running | won | caught
-    M.copProgress = -15               -- starts 15% of road behind
+    M.copProgress = -8                -- starts 8% of road behind
     M.copDelayTimer = 3.0           -- seconds before cop starts
 
           -- Camera state: how much the map is shifted.
@@ -215,7 +214,7 @@ M.onUpdate = function(self, dt)
              -- Cop only chases after countdown finishes
              if (M.copDelayTimer or 0) <= 0 then
                  M.copDelayTimer = 0
-                 local copSpeed = 25
+                 local copSpeed = 2.0
                  local thiefProgVal = (M.thiefProgress or 0)
                  if (M.copProgress or 0) < thiefProgVal then
                      M.copProgress = math.min(thiefProgVal, (M.copProgress or 0) + copSpeed * dt)
@@ -449,15 +448,21 @@ M.onDraw = function(self)
                               ox + MAP_W * sc - 4, oy + 4, 90, "right")
     end
 
-          -- Cop distance warning (red text when cop is close).
-    if (M.copOffset or 0) > 5 then
-        local warnAlpha = math.min(0.85, ((M.copOffset or 0) - 5) / 7)
-        love.graphics.setFont(love.graphics.newFont(math.max(8, 10 * sc)))
-        love.graphics.setColor(0.75, 0.20, 0.20, warnAlpha)
-        local distText = "Cop is " .. math.floor(math.max(0, -(M.copOffset or 0)))
-                              .. "px away!"
-        love.graphics.printf(distText, ox + MAP_W * sc / 2, oy + MAP_H * sc + 6,
-                              MAP_W * sc / 2 - 4, "left")
+-- Cop proximity warning (turns red as cop gets closer).
+    local cProg = math.max(0, (M.copProgress or 0))
+    local tProg = (M.thiefProgress or 0)
+    if cProg > 0 and cProg < tProg then
+        local gapFrac = (tProg - cProg) / 0.93       -- normalize to 0..1
+        local warnAlpha = math.min(0.85, (1 - gapFrac) * 0.8)
+        if warnAlpha > 0.05 then
+            local gapChars = math.floor(gapFrac * #waypoints + 0.5)
+            love.graphics.setFont(love.graphics.newFont(math.max(8, 10 * sc)))
+            love.graphics.setColor(0.75, 0.20, 0.20, warnAlpha)
+            local distText = "Cop is " .. gapChars .. " chars away!"
+            love.graphics.printf(distText, ox + MAP_W * sc / 2,
+                                 oy + MAP_H * sc + 6,
+                                 MAP_W * sc / 2 - 4, "left")
+        end
     end
 
           -- Game state overlay (won / caught).
@@ -536,13 +541,14 @@ M.onKeyReleased = function(self, key)
     if upperKey == targetChar then
         -- CORRECT: advance thief along the road.
         M.comboCount = (M.comboCount or 0) + 1
-        M.thiefProgress = math.min(1, (M.thiefProgress or 0) + 0.035)
+         -- Advance by one character per correct key press
+         M.step = (M.step or 0) + 1
+         M.thiefProgress = math.min(1, M.step / #waypoints)
         M.stumbleTimer = 0
 
-                -- Push cop back slightly on success.
-        if (M.copOffset or 0) < 0 then
-            M.copOffset = math.max(M.copOffset, (M.copOffset or 0) - 8)
-        end
+                -- Dash: push cop back by a few characters when hitting correctly.
+            local cProg = math.max(0, (M.copProgress or 0))
+            M.copProgress = math.max(-8, cProg - 3 * (#waypoints > 0 and 1 / #waypoints or 0))
 
                 -- Particle burst at the current road position.
         local tx, ty = _road_pos((M.thiefProgress or 0) - 0.035)
