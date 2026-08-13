@@ -1,9 +1,9 @@
 -- loveTyping -- Level 3: Night Escape!
 -- A top-down city map with geometric buildings.
--- Characters lie along straight streets (horizontal and vertical only).
--- The thief (dark circle, red bandana) runs from the start toward the exit.
--- Type correct letters to run; wrong keys make you stumble.
--- The cop chases from behind -- reach the end before getting caught!
+-- Characters lie along a winding road from start to exit.
+-- The thief (dark circle, red bandana) runs ahead; the cop (blue circle) chases.
+-- Type correct letters to move forward; wrong keys keep you in place.
+-- Cop advances one step every N seconds -- reach the end before caught!
 
 local M = {}
 states["level3"] = M
@@ -25,53 +25,54 @@ M._sc = 1
 M._ox = 0
 M._oy = 0
 
---- Convert world coords to screen pixels. Safe even when M.waypoints is nil.
+--- Resolve virtual index: maps negative idx to off-road / first elements.
+--- thiefIdx=-1 → element 1, thiefIdx=0 → element 2, copIdx=-2 → off-road.
+local function _v(idx) return math.max(1, idx + 2) end
+
+--- Convert world coords to screen pixels. Safe even when M.stepping is nil.
 local function s_x(mx) return mx * M._sc + M._ox end
 local function s_y(my) return my * M._sc + M._oy end
 
--- Map data (nil until onEnter runs).
-M.buildings = nil
-M.waypoints = nil
-M.pathChars = nil         -- char at each waypoint: {"A", "B", ...}
+-- Road data: array of {char, x, y} from start to exit.
+M.stepping = nil          -- {{char="A", x=..., y=...}, ...}
 
 -- === MAP GENERATION ===
 
---- Build the city: buildings and road characters.
+--- Build the city: road stepping-stones with characters assigned to each.
 local function generate_map()
     seed_rng(math.floor(os.time()) % 100000)
     local blds = {}
 
             -- A winding road through city blocks (straight streets only).
     local cp = {
-                {x = MAP_W * 0.12, y = MAP_H * 0.86},
-                {x = MAP_W * 0.35, y = MAP_H * 0.86},     -- same Y (horizontal)
-                {x = MAP_W * 0.35, y = MAP_H * 0.62},     -- same X (vertical up)
-                {x = MAP_W * 0.15, y = MAP_H * 0.62},     -- same Y (horizontal left)
-                {x = MAP_W * 0.15, y = MAP_H * 0.38},     -- same X (vertical up)
-                {x = MAP_W * 0.50, y = MAP_H * 0.38},     -- same Y (horizontal right)
-                {x = MAP_W * 0.50, y = MAP_H * 0.14},     -- same X (vertical up)
-                {x = MAP_W * 0.78, y = MAP_H * 0.14},     -- same Y (horizontal right)
-                {x = MAP_W * 0.78, y = MAP_H * 0.07},     -- same X (vertical up to exit)
-            }
+                 {x = MAP_W * 0.12, y = MAP_H * 0.86},
+                 {x = MAP_W * 0.35, y = MAP_H * 0.86},      -- same Y (horizontal)
+                 {x = MAP_W * 0.35, y = MAP_H * 0.62},      -- same X (vertical up)
+                 {x = MAP_W * 0.15, y = MAP_H * 0.62},      -- same Y (horizontal left)
+                 {x = MAP_W * 0.15, y = MAP_H * 0.38},      -- same X (vertical up)
+                 {x = MAP_W * 0.50, y = MAP_H * 0.38},      -- same Y (horizontal right)
+                 {x = MAP_W * 0.50, y = MAP_H * 0.14},      -- same X (vertical up)
+                 {x = MAP_W * 0.78, y = MAP_H * 0.14},      -- same Y (horizontal right)
+                 {x = MAP_W * 0.78, y = MAP_H * 0.07},      -- same X (vertical up to exit)
+             }
 
-    local wp = {}
+    local steps = {}
     for seg = 1, #cp - 1 do
         local p1 = cp[seg]
         local p2 = cp[seg + 1]
-        local dx = p2.x - p1.x      -- purely horizontal or vertical
+        local dx = p2.x - p1.x       -- purely horizontal or vertical
         local dy = p2.y - p1.y
 
             -- Straight Manhattan-style interpolation (no curves).
         local segLen = math.sqrt(dx * dx + dy * dy)
-        local totalPts = math.floor(segLen / 15)      -- spacing ~15 world pixels     -- spacing ~4 world pixels
+        local totalPts = math.floor(segLen / 15)       -- spacing ~15 world pixels
         for pIdx = 1, totalPts do
             local t = pIdx / totalPts
-            wp[#wp + 1] = {x = p1.x + dx * t, y = p1.y + dy * t}
+            steps[#steps + 1] = {x = p1.x + dx * t, y = p1.y + dy * t}
         end
     end
 
-
-           -- Place ~24 buildings avoiding the road.
+         -- Place ~24 buildings avoiding the road.
     local placed = 0
     while placed < 24 do
         local bw = 22 + next_rng() * 75
@@ -79,15 +80,15 @@ local function generate_map()
         local bx = 30 + next_rng() * (MAP_W - 60 - bw)
         local by = 30 + next_rng() * (MAP_H - 50 - bh)
 
-               -- Keep clear of start zone (bottom-left) and end zone.
+             -- Keep clear of start zone (bottom-left) and end zone.
         if (bx < 140 and by > MAP_H - 130) or
-                      (bx > MAP_W - 140 and by < 130) then goto skip end
+                       (bx > MAP_W - 140 and by < 130) then goto skip end
 
-               -- Keep clear of all road waypoints.
+             -- Keep clear of all road waypoints.
         local tooClose = false
-        for wi = 1, #wp do
-            local ddx = bx + bw / 2 - wp[wi].x
-            local ddy = by + bh / 2 - wp[wi].y
+        for wi = 1, #steps do
+            local ddx = bx + bw / 2 - steps[wi].x
+            local ddy = by + bh / 2 - steps[wi].y
             if math.sqrt(ddx * ddx + ddy * ddy) < 50 then
                 tooClose = true
                 break
@@ -97,98 +98,35 @@ local function generate_map()
 
         blds[#blds + 1] = {x = bx, y = by, w = bw, h = bh}
         placed = placed + 1
-               ::skip::
+             ::skip::
     end
 
-          -- Assign a random keyboard character to each road step.
-    local chars = {}
-    for i = 1, #wp do
-        chars[i] = string.char(math.floor(next_rng() * 26) + 65)
+         -- Assign a random keyboard character to each road step.
+    for i = 1, #steps do
+        steps[i].char = string.char(math.floor(next_rng() * 26) + 65)
     end
 
-    return blds, wp, chars
-end
-
--- === DRAWING HELPERS ===
-
---- Draw a flat-shaded geometric building with shadow offset for depth.
-local function _draw_building(b)
-    local sx = s_x(b.x)
-    local sy = s_y(b.y)
-    local sw = b.w * M._sc
-    local sh = b.h * M._sc
-
-    love.graphics.push()
-    love.graphics.translate(sx, sy)
-
-         -- Shadow (offset for depth effect).
-    love.graphics.setColor(0.18, 0.20, 0.24, 0.35)
-    love.graphics.rectangle("fill", 4 * M._sc, 4 * M._sc, sw + 6, sh + 6)
-
-         -- Building faces with flat shading (top face lighter).
-    love.graphics.setColor(0.55, 0.57, 0.62)
-    love.graphics.rectangle("fill", 0, 0, sw, sh)
-
-         -- Top edge highlight.
-    love.graphics.setLineWidth(1)
-    love.graphics.setColor(0.70, 0.72, 0.76)
-    love.graphics.rectangle("line", 0, 0, sw, sh)
-
-    love.graphics.pop()
-end
-
---- Compute the screen position of a point along the road at given progress (0..1).
-local function _road_pos(progress)
-    local waypoints = M.waypoints
-    if not waypoints or #waypoints < 1 then
-        return s_x(MAP_W * 0.12), s_y(MAP_H * 0.86)
-    end
-
-    local totalLen = M._totalLen
-    if not totalLen or totalLen <= 0 then totalLen = 1 end
-
-    local tgtDist = progress * totalLen
-    local acc = 0
-    for i = 2, #waypoints do
-        local dx = waypoints[i].x - waypoints[i - 1].x
-        local dy = waypoints[i].y - waypoints[i - 1].y
-        local segLen = math.sqrt(dx * dx + dy * dy)
-        if acc + segLen >= tgtDist then
-            local frac = (tgtDist - acc) / segLen
-            return s_x(waypoints[i - 1].x + dx * frac),
-                   s_y(waypoints[i - 1].y + dy * frac)
-        end
-        acc = acc + segLen
-    end
-    return s_x(waypoints[#waypoints].x), s_y(waypoints[#waypoints].y)
+    return blds, steps
 end
 
 -- === STATE FUNCTIONS ===
 
 M.onEnter = function(self)
-    M.buildings, M.waypoints, M.pathChars = generate_map()
+    M.buildings, M.stepping = generate_map()
 
-          -- Precompute total road length for progress scaling.
-    local totalLen = 0
-    if M.waypoints then
-        for i = 2, #M.waypoints do
-            local dx = M.waypoints[i].x - M.waypoints[i - 1].x
-            local dy = M.waypoints[i].y - M.waypoints[i - 1].y
-            totalLen = totalLen + math.sqrt(dx * dx + dy * dy)
-        end
-    end
-    M._totalLen = math.max(totalLen, 1)
-
-          -- Thief progress: 0.0 (start) to 1.0 (exit).
-    M.thiefProgress = 0
-    M.step = 0                            -- characters typed
-    M.comboCount = 0                  -- consecutive correct keystrokes
-    M.stumbleTimer = 0                -- brief freeze after wrong key
+-- Cop starts one step before the first road element.
+-- Thief starts at the first road element (the target character).
+    M.thiefIdx = -1                                -- virtual index (at first element)
+    M.copIdx = -2                                  -- virtual index (one step before thief)
+    M.stumbleTimer = 0                 -- brief freeze after wrong key
     M._gameTime = 0
-    M.copProgress = -8                -- starts 8% of road behind
-    M.copDelayTimer = 3.0           -- seconds before cop starts
+    M.gameState = "running"            -- running | won | caught
 
-          -- Camera state: how much the map is shifted.
+         -- Cop timer: counts down from DELAY_SECS, then advances by 1 every COP_INTERVAL seconds.
+    M.copDelayTimer = 3.0             -- initial delay before cop starts (seconds)
+    M._copNextAdvance = M.copDelayTimer -- when the next cop tick fires
+
+         -- Camera state: how much the map is shifted.
     M.camOffsetX = 0
     M.camOffsetY = 0
 end
@@ -196,7 +134,7 @@ end
 M.onUpdate = function(self, dt)
     M._gameTime = (M._gameTime or 0) + dt
 
-          -- Screen scale/offset: compute once per frame for onKeyReleased.
+         -- Screen scale/offset: compute once per frame for onKeyReleased.
     local w, h = love.graphics.getWidth(), love.graphics.getHeight()
     local titleBar = 36
     local hudSpace = 50
@@ -206,33 +144,38 @@ M.onUpdate = function(self, dt)
     M._ox = 20 + (availW - MAP_W * M._sc) / 2
     M._oy = titleBar + (availH - MAP_H * M._sc) / 2
 
-          -- Stumble cooldown.
+         -- Stumble cooldown.
     if (M.stumbleTimer or 0) > 0 then
         M.stumbleTimer = (M.stumbleTimer or 0) - dt
     end
 
-             -- Cop only chases after countdown finishes
-             if (M.copDelayTimer or 0) <= 0 then
-                 M.copDelayTimer = 0
-                 local copSpeed = 2.0
-                 local thiefProgVal = (M.thiefProgress or 0)
-                 if (M.copProgress or 0) < thiefProgVal then
-                     M.copProgress = math.min(thiefProgVal, (M.copProgress or 0) + copSpeed * dt)
-                 end
-             else
-                 M.copDelayTimer = math.max(0, (M.copDelayTimer or 0) - dt)
-             end
-          -- Combo decays slowly (encourages continuous typing).
+         -- Cop AI: advances one step every COP_INTERVAL seconds after delay.
+    if (M.copDelayTimer or 0) <= 0 and #M.stepping > 1 then
+        M.copDelayTimer = 0
+        local copInterval = 2.5           -- seconds between each cop tick
+        if M._gameTime >= M._copNextAdvance then
+            M.copIdx = math.min(#M.stepping - 1, M.copIdx + 1)
+            M._copNextAdvance = M._gameTime + copInterval
+        end
+    else
+        M.copDelayTimer = math.max(0, (M.copDelayTimer or 0) - dt)
+    end
+
+         -- Combo decays slowly (encourages continuous typing).
     M.comboCount = math.max(0, (M.comboCount or 0) - 0.08 * dt)
 
-          -- Win / lose checks.
+         -- Win / lose checks.
     if M.gameState ~= "running" then return end
 
-    if (M.thiefProgress or 0) >= 0.93 then
+          -- Thief reaches the last road element: escape!
+    local lastIdx = #M.stepping - 1
+    if M.thiefIdx >= lastIdx then
         M.gameState = "won"
         return
     end
-    if (M.copProgress or 0) >= (M.thiefProgress or 0) then
+
+          -- Cop catches thief when both are on-road (cop past first element).
+    if M.copIdx > -1 and M.copIdx >= M.thiefIdx then
         M.gameState = "caught"
     end
 end
@@ -240,16 +183,16 @@ end
 M.onDraw = function(self)
     local w, h = love.graphics.getWidth(), love.graphics.getHeight()
 
-          -- Background: white / near-white (light city feel).
+         -- Background: white / near-white (light city feel).
     love.graphics.setColor(0.95, 0.96, 0.98)
     love.graphics.rectangle("fill", 0, 0, w, h)
 
-          -- Scale/offset: use module-level values with safe defaults for first frame.
+         -- Scale/offset: use module-level values with safe defaults for first frame.
     local sc = M._sc or 1
     local ox = M._ox or 0
     local oy = M._oy or 0
 
-          -- Title bar at the top of the map area.
+         -- Title bar at the top of the map area.
     local title = "Level 3 -- Night Escape"
     if M.gameState == "won" then title = "Level 3 -- YOU ESCAPED!"
     elseif M.gameState == "caught" then title = "Level 3 -- CAUGHT!" end
@@ -265,13 +208,12 @@ M.onDraw = function(self)
     love.graphics.setColor(tcol[1], tcol[2], tcol[3], 0.7)
     love.graphics.printf(title, w / 2, 10, w * 0.8, "center")
 
-          -- Guard: check if map has been initialized.
+         -- Guard: check if map has been initialized.
     local blds = M.buildings
-    local waypoints = M.waypoints
-    local chars = M.pathChars
+    local steps = M.stepping
 
-    if not waypoints or #waypoints < 1 then
-              -- Map not generated yet: show a simple placeholder.
+    if not steps or #steps < 1 then
+             -- Map not generated yet: show a simple placeholder.
         love.graphics.setColor(0.85, 0.87, 0.90)
         love.graphics.rectangle("fill", ox, oy, MAP_W * sc, MAP_H * sc)
         love.graphics.setFont(love.graphics.newFont(16))
@@ -280,11 +222,11 @@ M.onDraw = function(self)
         return
     end
 
-          -- Map area background (subtle off-white grid).
+         -- Map area background (subtle off-white grid).
     love.graphics.setColor(0.93, 0.94, 0.96)
     love.graphics.rectangle("fill", ox, oy, MAP_W * sc, MAP_H * sc)
 
-          -- Grid lines on the ground (subtle).
+         -- Grid lines on the ground (subtle).
     love.graphics.setLineWidth(0.5)
     love.graphics.setColor(0.87, 0.89, 0.91, 0.6)
     for gx = 0, MAP_W, 40 do
@@ -297,57 +239,96 @@ M.onDraw = function(self)
     end
     love.graphics.setLineWidth(1)
 
-          -- Draw geometric buildings (Y-sorted for depth).
+         -- Draw geometric buildings (Y-sorted for depth).
     if blds then
         local sortedBlds = {}
         for _, b in ipairs(blds) do sortedBlds[#sortedBlds + 1] = b end
         table.sort(sortedBlds, function(a, b) return a.y < b.y end)
-        for _, b in ipairs(sortedBlds) do _draw_building(b) end
+        for _, b in ipairs(sortedBlds) do
+            local sx = s_x(b.x)
+            local sy = s_y(b.y)
+            local sw = b.w * sc
+            local sh = b.h * sc
+            love.graphics.push()
+            love.graphics.translate(sx, sy)
+
+                     -- Shadow (offset for depth effect).
+            love.graphics.setColor(0.18, 0.20, 0.24, 0.35)
+            love.graphics.rectangle("fill", 4 * sc, 4 * sc, sw + 6, sh + 6)
+
+                     -- Building faces with flat shading (top face lighter).
+            love.graphics.setColor(0.55, 0.57, 0.62)
+            love.graphics.rectangle("fill", 0, 0, sw, sh)
+
+                     -- Top edge highlight.
+            love.graphics.setLineWidth(1)
+            love.graphics.setColor(0.70, 0.72, 0.76)
+            love.graphics.rectangle("line", 0, 0, sw, sh)
+
+            love.graphics.pop()
+        end
     end
-         -- Draw the road: characters only, no lines or decorations.
-          local thiefIdx = math.floor((M.thiefProgress or 0) * #waypoints) + 1
 
-          for i = 1, #waypoints do
-              local px = waypoints[i].x
-              local py = waypoints[i].y
-              local spx = s_x(px)
-              local spy = s_y(py)
-              local ch = chars[i]
+    for i = 1, #steps do
+        local px = steps[i].x
+        local py = steps[i].y
+        local spx = s_x(px)
+        local spy = s_y(py)
+        local ch = steps[i].char
 
-               -- Draw all road characters. High contrast for visibility.
-               if i == thiefIdx then
-                   -- Target: gold character with white hollow circle
-                   love.graphics.setLineWidth(2 * sc)
-                   love.graphics.setColor(1.0, 1.0, 1.0)
-                   love.graphics.circle('line', spx, spy, 16 * sc)
-                   love.graphics.setLineWidth(1)
-                   love.graphics.setColor(1.0, 0.85, 0.1)
-                   love.graphics.printf(ch, spx, spy, 24 * sc, 'center')
-               elseif i < thiefIdx then
-                   -- Typed: GREEN character (no outline, small glow only)
-                   love.graphics.setColor(0.15, 0.65, 0.15)
-                   love.graphics.printf(ch, spx, spy, 24*sc, 'center')
-               else
-                   -- Untyped: RED character (waiting)
-                   love.graphics.setColor(0.90, 0.15, 0.15)
-                   love.graphics.printf(ch, spx, spy, 24*sc, 'center')
-               end
+            -- Draw road connection line between adjacent visible steps.
+        if i > 1 then
+            local ppx = steps[i - 1].x
+            local ppy = steps[i - 1].y
+            love.graphics.setLineWidth(2 * sc)
+            love.graphics.setColor(0.65, 0.68, 0.72, 0.35)
+            love.graphics.line(s_x(ppx), s_y(ppy), spx, spy)
+            love.graphics.setLineWidth(1)
+        end
 
-          end
+           -- Character rendering based on state.
+          -- Dark gray at thief position (target), RED for untyped ahead, GREEN for typed behind.
+        if i == _v(M.thiefIdx) then
+               -- Target character: dark gray with white hollow circle.
+            love.graphics.setLineWidth(2 * sc)
+            love.graphics.setColor(1.0, 1.0, 1.0)
+            love.graphics.circle('line', spx, spy, 16 * sc)
+            love.graphics.setLineWidth(1)
+            love.graphics.setColor(0.35, 0.35, 0.35)
+            love.graphics.printf(ch, spx, spy, 24 * sc, 'center')
+        elseif i > _v(M.thiefIdx) then
+               -- Not yet reached: RED character.
+            love.graphics.setColor(0.90, 0.15, 0.15)
+            love.graphics.printf(ch, spx, spy, 24*sc, 'center')
+        else
+               -- Already typed/passed: GREEN character (no outline).
+            love.graphics.setColor(0.15, 0.65, 0.15)
+            love.graphics.printf(ch, spx, spy, 24*sc, 'center')
+        end
 
-           -- Draw road edge markers (start / exit).
-    if #waypoints >= 1 then
-                   -- Start marker: subtle green circle at beginning.
-        local sWp = waypoints[1]
+          -- Highlight the next target character.
+        if i == _v(M.thiefIdx) then
+            local gt = M._gameTime or 0
+            local pulseR = 16 + math.sin(gt * 5) * 3
+            love.graphics.setLineWidth(2 * sc)
+            love.graphics.setColor(0.5, 0.5, 0.5, 0.4 + math.sin(gt * 5) * 0.2)
+            love.graphics.circle("line", spx, spy, pulseR * sc + 4 * sc)
+            love.graphics.setLineWidth(1)
+        end
+
+         -- Draw road edge markers (start / exit).
+    if #steps >= 1 then
+             -- Start marker: subtle green circle at beginning.
+        local sWp = steps[1]
         love.graphics.setLineWidth(2)
         love.graphics.setColor(0.30, 0.65, 0.30, 0.6)
         love.graphics.circle("line", s_x(sWp.x), s_y(sWp.y), 14 * sc)
         love.graphics.setLineWidth(1)
     end
 
-           -- Exit marker: pulsing gold ring at the end.
-    if #waypoints >= 1 then
-        local eWp = waypoints[#waypoints]
+         -- Exit marker: pulsing gold ring at the end.
+    if #steps >= 1 then
+        local eWp = steps[#steps]
         local gt = M._gameTime or 0
         local pulseR = 16 + math.sin(gt * 4) * 3
         love.graphics.setLineWidth(2.5)
@@ -356,90 +337,153 @@ M.onDraw = function(self)
         love.graphics.circle("line", s_x(eWp.x), s_y(eWp.y), pulseR * sc)
         love.graphics.setLineWidth(1)
     end
-
-
-          -- === THIEF CHARACTER ===
-          -- Dark circle with a red bandana stripe across the top,
-          -- direction arrow pointing toward the exit.
-    local thiefSx, thiefSy = _road_pos(M.thiefProgress or 0)
-    local thiefR = 9 * sc
-    local gt = M._gameTime or 0
-    local bobY = math.sin(gt * ((M.stumbleTimer and M.stumbleTimer > 0) and 2 or 8))
-                     * 2 * sc
-
-    love.graphics.push()
-    love.graphics.translate(thiefSx, thiefSy + bobY)
-
-          -- Shadow underneath.
-    love.graphics.setColor(0.15, 0.16, 0.18, 0.30)
-    love.graphics.circle("fill", 2 * sc, thiefR + 2, thiefR * 0.45)
-
-          -- Body: dark circle (silhouette).
-    love.graphics.setColor(0.12, 0.10, 0.16)
-    love.graphics.circle("fill", 0, 0, thiefR)
-
-          -- Red bandana stripe across the top half.
-    love.graphics.setLineWidth(3 * sc)
-    love.graphics.setColor(0.75, 0.15, 0.18)
-    love.graphics.circle("fill", 0, -thiefR * 0.15, thiefR * 0.65)
-
-          -- Direction arrow (points toward exit).
-    if #waypoints >= 2 and (M.thiefProgress or 0) < 1 then
-        local dirA = math.atan2(waypoints[#waypoints].y - waypoints[1].y,
-                                waypoints[#waypoints].x - waypoints[1].x)
-        local aLen = thiefR + 7 * sc
-        love.graphics.setLineWidth(1.5)
-        love.graphics.setColor(0.80, 0.65, 0.20, 0.45)
-        love.graphics.line(0, 0, math.cos(dirA) * aLen, math.sin(dirA) * aLen)
-        for sign = -1, 1, 2 do
-            local off = dirA + sign * 0.35
-            love.graphics.line(math.cos(dirA) * aLen, math.sin(dirA) * aLen,
-                               math.cos(off) * (aLen - 4 * sc),
-                               math.sin(off) * (aLen - 4 * sc))
-        end
     end
 
-    love.graphics.pop()
+         -- === THIEF CHARACTER ===
+         -- Dark circle with a red bandana stripe across the top,
+         -- direction arrow pointing toward the exit.
+    local thiefPos = steps[_v(M.thiefIdx)]
+    if thiefPos then
+        local thiefSx = s_x(thiefPos.x)
+        local thiefSy = s_y(thiefPos.y)
+        local thiefR = 9 * sc
+        local gt = M._gameTime or 0
+        local bobY = math.sin(gt * ((M.stumbleTimer and M.stumbleTimer > 0) and 2 or 8))
+                             * 2 * sc
+
+        love.graphics.push()
+        love.graphics.translate(thiefSx, thiefSy + bobY)
+
+                 -- Shadow underneath.
+        love.graphics.setColor(0.15, 0.16, 0.18, 0.30)
+        love.graphics.circle("fill", 2 * sc, thiefR + 2, thiefR * 0.45)
+
+                 -- Body: dark circle (silhouette).
+        love.graphics.setColor(0.12, 0.10, 0.16)
+        love.graphics.circle("fill", 0, 0, thiefR)
+
+                 -- Red bandana stripe across the top half.
+        love.graphics.setLineWidth(3 * sc)
+        love.graphics.setColor(0.75, 0.15, 0.18)
+        love.graphics.circle("fill", 0, -thiefR * 0.15, thiefR * 0.65)
+
+                 -- Direction arrow (points toward exit).
+        if #steps >= 2 and M.thiefIdx < #steps - 1 then
+            local dirX = steps[#steps].x - steps[1].x
+            local dirY = steps[#steps].y - steps[1].y
+            local dirA = math.atan2(dirY, dirX)
+            local aLen = thiefR + 7 * sc
+            love.graphics.setLineWidth(1.5)
+            love.graphics.setColor(0.80, 0.65, 0.20, 0.45)
+            love.graphics.line(0, 0, math.cos(dirA) * aLen, math.sin(dirA) * aLen)
+            for sign = -1, 1, 2 do
+                local off = dirA + sign * 0.35
+                love.graphics.line(math.cos(dirA) * aLen, math.sin(dirA) * aLen,
+                                   math.cos(off) * (aLen - 4 * sc),
+                                   math.sin(off) * (aLen - 4 * sc))
+            end
+        end
+
+        love.graphics.pop()
+    end
+
 
           -- === COP CHARACTER ===
           -- Blue circle with gold badge dot, hat brim, chasing behind.
-    if #waypoints >= 2 then
-               -- Cop follows the character path. Position based on copProgress.
-        local cProg = math.max(0, (M.copProgress or 0))
-        local cpx, cpy = _road_pos(cProg)
+    local copPos = nil
+    if M.copIdx < -1 then
+           -- Cop is off-road (before element 1): offset backward by spacing.
+        if #steps >= 1 then
+            local s1 = steps[1]
+            local dirX, dirY = (MAP_W * 0.78 - MAP_W * 0.12), (MAP_H * 0.07 - MAP_H * 0.86)
+            local len = math.sqrt(dirX * dirX + dirY * dirY)
+            if len > 0 then dirX, dirY = dirX / len, dirY / len end
+            copPos = {x = s1.x - dirX * 15, y = s1.y - dirY * 15}
+        end
+    else
+           -- Cop is at element 1 or beyond.
+        local cs = steps[_v(M.copIdx)]
+        if cs then copPos = cs end
+    end
+    if copPos then
+        local cpx = s_x(copPos.x)
+        local cpy = s_y(copPos.y)
         local copR = 8 * sc
 
-              -- Only draw cop if visible on screen.
+            -- Only draw cop if visible on screen.
         if cpx >= ox - 20 and cpx <= ox + MAP_W * sc + 20 and
                cpy >= oy - 20 and cpy <= oy + MAP_H * sc + 20 then
             love.graphics.push()
             love.graphics.translate(cpx, cpy)
 
-                      -- Shadow.
+                -- Shadow.
             love.graphics.setColor(0.15, 0.16, 0.18, 0.35)
             love.graphics.circle("fill", 2 * sc, copR + 2, copR * 0.45)
 
-                      -- Body: blue circle (police uniform).
+                -- Body: blue circle (police uniform).
             love.graphics.setColor(0.18, 0.28, 0.50)
             love.graphics.circle("fill", 0, 0, copR)
 
-                      -- Gold badge on chest.
+                -- Gold badge on chest.
             love.graphics.setLineWidth(2 * sc)
             love.graphics.setColor(0.85, 0.80, 0.25)
             love.graphics.circle("fill", 0, -copR * 0.15, 2.5 * sc)
 
-                      -- Hat brim (horizontal bar across top).
+                -- Hat brim (horizontal bar across top).
             love.graphics.rectangle("fill", -copR * 0.6, copR * 0.3,
-                                    copR * 1.2, 1.5 * sc)
+                                        copR * 1.2, 1.5 * sc)
 
             love.graphics.pop()
         end
     end
 
-          -- === HUD (simplified: no speed bar or progress indicator) ===
+         -- === HUD: Progress bar showing thief vs cop positions ===
     local hudY = oy + MAP_H * sc + 6
+    local barW = math.min(300, MAP_W * sc * 0.7)
+    local barH = 12
+    local barX = ox + (MAP_W * sc - barW) / 2
+    local barY = hudY + 20
 
-          -- Combo counter (top-right of map area).
+             -- Progress bar background.
+    love.graphics.setColor(0.30, 0.30, 0.35, 0.5)
+    love.graphics.rectangle("fill", barX, barY, barW, barH, 4)
+
+             -- Cop marker (red square on progress bar).
+    if #steps > 1 then
+        local copFrac = math.max(0, (M.copIdx or 0)) / math.max(1, #steps - 1)
+        local thiefFrac = math.max(0, (M.thiefIdx or 0)) / math.max(1, #steps - 1)
+
+                 -- Progress fill up to thief.
+        love.graphics.setColor(0.25, 0.60, 0.30, 0.4)
+        love.graphics.rectangle("fill", barX, barY, barW * thiefFrac, barH, 4)
+
+                 -- Cop dot (red).
+        local copDotX = barX + barW * copFrac
+        love.graphics.setColor(0.80, 0.15, 0.15)
+        love.graphics.circle("fill", copDotX, barY + barH / 2, 6)
+
+                 -- Thief dot (gold).
+        local thiefDotX = barX + barW * thiefFrac
+        love.graphics.setColor(1.0, 0.85, 0.1)
+        love.graphics.circle("fill", thiefDotX, barY + barH / 2, 7)
+
+                 -- Labels.
+        love.graphics.setFont(love.graphics.newFont(math.max(8, 9 * sc)))
+        love.graphics.setColor(0.85, 0.85, 0.90, 0.7)
+        love.graphics.printf("YOU", thiefDotX, barY + barH + 4, 30, "center")
+        love.graphics.printf("COP", copDotX, barY + barH + 4, 30, "center")
+
+                 -- Proximity warning.
+        if M.thiefIdx - M.copIdx <= 3 and M.copIdx < M.thiefIdx then
+            local warnAlpha = math.min(0.9, (4 - (M.thiefIdx - M.copIdx)) * 0.25)
+            love.graphics.setColor(0.85, 0.15, 0.15, warnAlpha)
+            local distText = "Cop is " .. (M.thiefIdx - M.copIdx) .. " steps behind!"
+            love.graphics.printf(distText, barX + barW / 2, barY + barH + 24,
+                                 barW, "center")
+        end
+    end
+
+         -- === HUD: Combo counter (top-right of map area). ===
     if (M.comboCount or 0) > 1 then
         local ca = math.min(0.9, (M.comboCount or 0) / 5)
         love.graphics.setFont(love.graphics.newFont(math.max(8, 11 * sc)))
@@ -448,24 +492,26 @@ M.onDraw = function(self)
                               ox + MAP_W * sc - 4, oy + 4, 90, "right")
     end
 
--- Cop proximity warning (turns red as cop gets closer).
-    local cProg = math.max(0, (M.copProgress or 0))
-    local tProg = (M.thiefProgress or 0)
-    if cProg > 0 and cProg < tProg then
-        local gapFrac = (tProg - cProg) / 0.93       -- normalize to 0..1
-        local warnAlpha = math.min(0.85, (1 - gapFrac) * 0.8)
-        if warnAlpha > 0.05 then
-            local gapChars = math.floor(gapFrac * #waypoints + 0.5)
-            love.graphics.setFont(love.graphics.newFont(math.max(8, 10 * sc)))
-            love.graphics.setColor(0.75, 0.20, 0.20, warnAlpha)
-            local distText = "Cop is " .. gapChars .. " chars away!"
-            love.graphics.printf(distText, ox + MAP_W * sc / 2,
-                                 oy + MAP_H * sc + 6,
-                                 MAP_W * sc / 2 - 4, "left")
+         -- === HUD: Timer display (top-left of map area). ===
+    if M.gameState == "running" then
+        local elapsed = math.floor((M._gameTime or 0))
+        local timerSecs = math.max(0, math.ceil(M.copDelayTimer or 0))
+        love.graphics.setFont(love.graphics.newFont(math.max(8, 10 * sc)))
+        if M.copDelayTimer and M.copDelayTimer > 0 then
+            love.graphics.setColor(0.85, 0.70, 0.10, 0.8)
+            love.graphics.printf("Cop arrives in " .. timerSecs .. "s",
+                                 ox + 4, oy + 4, 120, "left")
+        else
+            love.graphics.setColor(0.85, 0.20, 0.20, 0.8)
+            love.graphics.printf("COP CHASING!", ox + 4, oy + 4, 120, "left")
         end
+        love.graphics.setColor(0.50, 0.52, 0.55, 0.6)
+        love.graphics.printf("Time: " .. elapsed .. "s",
+                             ox + MAP_W * sc - 4, oy + 4, 120, "right")
     end
 
-          -- Game state overlay (won / caught).
+         -- Game state overlay (won / caught).
+    local gt = M._gameTime or 0
     if M.gameState == "won" then
         local fa = math.min(0.55, gt * 0.3)
         love.graphics.setColor(0.20, 0.55, 0.25, fa)
@@ -484,7 +530,7 @@ M.onDraw = function(self)
                               oy + MAP_H * sc / 2 - 8, 60 * sc, "center")
     end
 
-          -- Map boundary outline.
+         -- Map boundary outline.
     love.graphics.setLineWidth(1.5)
     local bdrCol
     if M.gameState == "won" then
@@ -498,24 +544,33 @@ M.onDraw = function(self)
     love.graphics.rectangle("line", ox, oy, MAP_W * sc, MAP_H * sc)
     love.graphics.setLineWidth(1)
 
-          -- Esc hint (outside map area).
+         -- Esc hint (outside map area).
     if M.gameState == "running" then
-        local escY = hudY + 22
+        local escY = hudY + 36
         love.graphics.setFont(love.graphics.newFont(math.max(8, 9 * sc)))
         love.graphics.setColor(0.50, 0.52, 0.55, 0.6)
         love.graphics.printf("Press Esc to flee back", w / 2 - 20 * sc, escY,
-                                40 * sc, "center")
+                                 40 * sc, "center")
     end
 
-    -- Countdown: cop starts chasing after delay
+         -- Countdown: cop starts chasing after delay.
     if (M.copDelayTimer or 0) > 0 then
-        local w, h = love.graphics.getWidth(), love.graphics.getHeight()
         local cnt = math.ceil(M.copDelayTimer)
-        local bigFont = love.graphics.newFont(math.max(16, 40 * M._sc))
-        love.graphics.setFont(bigFont)
-        love.graphics.setColor(0.15, 0.15, 0.25, math.min(1, (M.copDelayTimer or 0) * 0.3))
-        love.graphics.printf("GET READY! " .. tostring(cnt), w / 2, h / 2,
-                                 w * 0.6, "center")
+        love.graphics.setFont(love.graphics.newFont(math.max(16, 48 * sc)))
+        love.graphics.setColor(0.95, 0.20, 0.10,
+                               math.min(1, (M.copDelayTimer or 0) * 0.5))
+        love.graphics.printf(cnt .. "!", w / 2, h / 2 - 30,
+                             w * 0.6, "center")
+         -- Draw a pulsing countdown ring around the thief.
+        local pulseR = 16 + math.sin(gt * 8) * 4
+        love.graphics.setLineWidth(3 * sc)
+        love.graphics.setColor(0.95, 0.20, 0.10, 0.6)
+        local thfStep = steps[_v(M.thiefIdx)]
+        if thfStep then
+            love.graphics.circle("line", s_x(thfStep.x), s_y(thfStep.y),
+                                 pulseR * sc)
+        end
+        love.graphics.setLineWidth(1)
     end
 end
 
@@ -523,46 +578,41 @@ M.onKeyReleased = function(self, key)
     if key == "escape" then changeState("menu"); return end
     if M.gameState ~= "running" then return end
 
-           -- Only respond to letter keys (A-Z / a-z).
+          -- Only respond to letter keys (A-Z / a-z).
     if not key:match("^%a$") then return end
 
     local upperKey = string.upper(key)
-    local waypoints = M.waypoints
-    local chars = M.pathChars
+    local steps = M.stepping
 
-        -- Find the character at our current road position.
+         -- Find the character at thief's current position.
     local targetChar = nil
-    if waypoints and #waypoints >= 1 then
-        local thiefIdx = math.min(#waypoints, math.floor((M.thiefProgress or 0) * #waypoints) + 1)
-        targetChar = chars[thiefIdx]
+    if steps and #steps > 0 then
+        targetChar = steps[_v(M.thiefIdx)].char
     end
     targetChar = targetChar or "A"
 
     if upperKey == targetChar then
-        -- CORRECT: advance thief along the road.
+         -- CORRECT: advance thief one step forward.
         M.comboCount = (M.comboCount or 0) + 1
-         -- Advance by one character per correct key press
-         M.step = (M.step or 0) + 1
-         M.thiefProgress = math.min(1, M.step / #waypoints)
         M.stumbleTimer = 0
+        M.thiefIdx = math.min(#steps - 1, M.thiefIdx + 1)
 
-                -- Dash: push cop back by a few characters when hitting correctly.
-            local cProg = math.max(0, (M.copProgress or 0))
-            M.copProgress = math.max(-8, cProg - 3 * (#waypoints > 0 and 1 / #waypoints or 0))
-
-                -- Particle burst at the current road position.
-        local tx, ty = _road_pos((M.thiefProgress or 0) - 0.035)
+               -- Particle burst at the new road position.
+        local vIdx = _v(M.thiefIdx)
+        local tx, ty = s_x(steps[vIdx].x), s_y(steps[vIdx].y)
         addExplosion(tx, ty, 0.3, 0.75, 0.30, 12)
     else
-        -- WRONG: stumble (lose ground, cop closes in).
+         -- WRONG: stay in place (no backward movement).
         M.comboCount = 0
-        M.stumbleTimer = 0.6                     -- brief freeze frames
-        M.thiefProgress = math.max(0, (M.thiefProgress or 0) - 0.01)
+        M.stumbleTimer = 0.6
 
-                -- Red particle burst at thief position.
-        local tx, ty = _road_pos((M.thiefProgress or 0) + 0.01)
-        addExplosion(tx, ty, 0.75, 0.18, 0.18, 6)
+               -- Red particle burst at current thief position (stumble effect).
+        local vIdx = _v(M.thiefIdx)
+        if vIdx <= #steps then
+            addExplosion(s_x(steps[vIdx].x), s_y(steps[vIdx].y), 0.75, 0.18, 0.18, 6)
+        end
     end
 end
+
 
 return M
