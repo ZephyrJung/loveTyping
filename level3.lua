@@ -65,7 +65,7 @@ local function generate_map()
 
             -- Straight Manhattan-style interpolation (no curves).
         local segLen = math.sqrt(dx * dx + dy * dy)
-        local totalPts = math.floor(segLen / 15)       -- spacing ~15 world pixels
+        local totalPts = math.floor(segLen / 50)    -- spacing ~50 world pixels
         for pIdx = 1, totalPts do
             local t = pIdx / totalPts
             steps[#steps + 1] = {x = p1.x + dx * t, y = p1.y + dy * t}
@@ -101,15 +101,44 @@ local function generate_map()
              ::skip::
     end
 
-         -- Assign a random keyboard character to each road step.
-    for i = 1, #steps do
-        steps[i].char = string.char(math.floor(next_rng() * 26) + 65)
-    end
 
-    return blds, steps
+
+        -- Shuffle character pool and expand to keyboard characters.
+        local _pool = {}
+        for _c = 65, 90 do _pool[#_pool + 1] = string.char(_c) end
+        for _c = 48, 57 do _pool[#_pool + 1] = string.char(_c) end
+        for _c, _ in ipairs({"!", "@", "#", "$", "%", "&", "*", "+", "=", "."}) do
+            _pool[#_pool + 1] = _
+        end
+        -- Fisher-Yates shuffle
+        for _si = #_pool, 2, -1 do
+            local _ni = math.random(_si)
+             _pool[_si], _pool[_ni] = _pool[_ni], _pool[_si]
+        end
+
+        -- Reassign shuffled characters to existing road steps.
+        for i = 1, #steps do
+            steps[i].char = _pool[(i - 1) % #_pool + 1]
+        end
+
+        -- Pad steps array to reach ~65 elements (enough chars, readable spacing).
+        local TARGET = 65
+        if #steps < TARGET then
+            local lastWP = steps[#steps]
+            for i = #steps + 1, TARGET do
+                local frac = (i - #steps) / (TARGET - #steps)
+                steps[i] = {
+                    x = lastWP.x + frac * 300,
+                    y = lastWP.y + math.random(-8, 8)
+                }
+            end
+        elseif #steps > TARGET then
+            for i = #steps, TARGET + 1, -1 do
+                table.remove(steps, i)
+            end
+        end
+        return blds, steps
 end
-
--- === STATE FUNCTIONS ===
 
 M.onEnter = function(self)
     M.buildings, M.stepping = generate_map()
@@ -274,6 +303,7 @@ M.onDraw = function(self)
         local py = steps[i].y
         local spx = s_x(px)
         local spy = s_y(py)
+        local spyC = spy - 40 * sc
         local ch = steps[i].char
 
             -- Draw road connection line between adjacent visible steps.
@@ -292,18 +322,18 @@ M.onDraw = function(self)
                -- Target character: dark gray with white hollow circle.
             love.graphics.setLineWidth(2 * sc)
             love.graphics.setColor(1.0, 1.0, 1.0)
-            love.graphics.circle('line', spx, spy, 16 * sc)
+            love.graphics.circle('line', spx, spyC, 16 * sc)
             love.graphics.setLineWidth(1)
             love.graphics.setColor(0.35, 0.35, 0.35)
-            love.graphics.printf(ch, spx, spy, 24 * sc, 'center')
+            love.graphics.printf(ch, spx, spyC, 24 * sc, 'center')
         elseif i > _v(M.thiefIdx) then
                -- Not yet reached: RED character.
             love.graphics.setColor(0.90, 0.15, 0.15)
-            love.graphics.printf(ch, spx, spy, 24*sc, 'center')
+            love.graphics.printf(ch, spx, spyC, 24*sc, 'center')
         else
                -- Already typed/passed: GREEN character (no outline).
             love.graphics.setColor(0.15, 0.65, 0.15)
-            love.graphics.printf(ch, spx, spy, 24*sc, 'center')
+            love.graphics.printf(ch, spx, spyC, 24*sc, 'center')
         end
 
           -- Highlight the next target character.
@@ -312,7 +342,7 @@ M.onDraw = function(self)
             local pulseR = 16 + math.sin(gt * 5) * 3
             love.graphics.setLineWidth(2 * sc)
             love.graphics.setColor(0.5, 0.5, 0.5, 0.4 + math.sin(gt * 5) * 0.2)
-            love.graphics.circle("line", spx, spy, pulseR * sc + 4 * sc)
+            love.graphics.circle("line", spx, spyC, pulseR * sc + 4 * sc)
             love.graphics.setLineWidth(1)
         end
 
@@ -344,8 +374,8 @@ M.onDraw = function(self)
          -- direction arrow pointing toward the exit.
     local thiefPos = steps[_v(M.thiefIdx)]
     if thiefPos then
-        local thiefSx = s_x(thiefPos.x)
-        local thiefSy = s_y(thiefPos.y)
+        local thiefSx = s_x(thiefPos.x + 35)
+        local thiefSy = s_y(thiefPos.y + 25)
         local thiefR = 9 * sc
         local gt = M._gameTime or 0
         local bobY = math.sin(gt * ((M.stumbleTimer and M.stumbleTimer > 0) and 2 or 8))
@@ -398,7 +428,7 @@ M.onDraw = function(self)
             local dirX, dirY = (MAP_W * 0.78 - MAP_W * 0.12), (MAP_H * 0.07 - MAP_H * 0.86)
             local len = math.sqrt(dirX * dirX + dirY * dirY)
             if len > 0 then dirX, dirY = dirX / len, dirY / len end
-            copPos = {x = s1.x - dirX * 15, y = s1.y - dirY * 15}
+            copPos = {x = s1.x - dirX * 60, y = s1.y - dirY * 60}
         end
     else
            -- Cop is at element 1 or beyond.
