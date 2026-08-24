@@ -3,7 +3,9 @@
 states["menu"] = {
     flashAlpha = 0,
     hoverIdx = -1, -- track which button is hovered (for keyboard nav)
-    mouseClicked = false, -- flag set by love.mousepressed
+    mouseClicked = false, -- flag set by love.mousepressed / love.touchpressed
+    clickX = 0,
+    clickY = 0,
 
     onEnter = function(self)
         local w, h = love.graphics.getWidth(), love.graphics.getHeight()
@@ -32,7 +34,8 @@ states["menu"] = {
               -- Handle mouse click on buttons (use our clicked flag for LÖVE 11 compatibility)
         if self.mouseClicked then
             self.mouseClicked = false -- reset the flag
-            local mmx, mmy = love.mouse.getPosition()
+            local mmx = self.clickX
+            local mmy = self.clickY
             for i, btn in ipairs(self.buttons) do
                 if (mmx >= btn.x and mmx <= btn.x + btn.w and
                     mmy >= btn.y and mmy <= btn.y + btn.h) then

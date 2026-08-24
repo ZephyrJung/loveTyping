@@ -50,6 +50,8 @@ love.mousepressed = function(x, y, button)
            -- Forward mouse click to menu state's mouseClicked flag
     if button == 1 and currentStateName == "menu" and states["menu"] then
         states["menu"].mouseClicked = true
+        states["menu"].clickX = x
+        states["menu"].clickY = y
     end
 
         -- Level 2: click tier selector buttons (bottom-right corner)
@@ -67,5 +69,14 @@ love.mousepressed = function(x, y, button)
                 states["level2"].overflowCount = 0
             end
         end
+    end
+end
+
+           -- Menu touch input for tap-to-select buttons (touchscreens)
+love.touchpressed = function(x, y, touch)
+    if currentStateName == "menu" and states["menu"] then
+        states["menu"].mouseClicked = true
+        states["menu"].clickX = x
+        states["menu"].clickY = y
     end
 end
