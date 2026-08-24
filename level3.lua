@@ -173,7 +173,7 @@ local function generate_map()
 
            -- Assign shuffled characters to ALL road steps.
         for i = 1, #steps do
-            steps[i].char = _pool[(i - 1) % #_pool + 1]
+            steps[i].char = _pool[math.random(1, #_pool)]
         end
 
           -- === BUILDING PLACEMENT ALONG BOTH SIDES OF THE ROAD ===
