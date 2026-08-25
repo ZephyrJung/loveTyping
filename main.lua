@@ -73,7 +73,7 @@ love.mousepressed = function(x, y, button)
 end
 
            -- Menu touch input for tap-to-select buttons (touchscreens)
-love.touchpressed = function(x, y, touch)
+love.touchpressed = function(touch, x, y)
     if currentStateName == "menu" and states["menu"] then
         states["menu"].mouseClicked = true
         states["menu"].clickX = x
