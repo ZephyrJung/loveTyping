@@ -339,7 +339,7 @@ M.onDraw = function(self)
     local title = "Level 3 -- Night Escape"
     if M.gameState == "won" then title = "Level 3 -- YOU ESCAPED!"
     elseif M.gameState == "caught" then title = "Level 3 -- CAUGHT!" end
-    love.graphics.setFont(love.graphics.newFont(14))
+    love.graphics.setFont(love.graphics.newFont(math.max(10, 14 * sc)))
     local tcol
     if M.gameState == "won" then
         tcol = {0.25, 0.60, 0.45}
@@ -359,7 +359,7 @@ M.onDraw = function(self)
                -- Map not generated yet: show a simple placeholder.
         love.graphics.setColor(0.85, 0.87, 0.90)
         love.graphics.rectangle("fill", ox, oy, MAP_W * sc, MAP_H * sc)
-        love.graphics.setFont(love.graphics.newFont(16))
+        love.graphics.setFont(love.graphics.newFont(math.max(12, 16 * sc)))
         love.graphics.setColor(0.35, 0.42, 0.55)
         love.graphics.printf("Loading map...", w / 2, h / 2, w * 0.5, "center")
         return
@@ -725,7 +725,8 @@ M.onKeyReleased = function(self, key)
       -- On macOS LÖVE2D often sends Shift+key as base physical key ("1") not "!".
       -- Map each physical key to its shifted symbol for lookup.
     local _shifted = {["1"]="!", ["2"]="@", ["3"]="#", ["4"]="$",
-            ["5"]="%", ["7"]="&", ["8"]="*", ["="]="+", ["/"]="?"}
+              ["5"]="%", ["7"]="&", ["8"]="*", ["="]="+", ["/"]="?",
+                    ["+"]="-"}
 
       -- Only accept printable single-character keys (letters, digits, symbols).
     if #key ~= 1 then return end

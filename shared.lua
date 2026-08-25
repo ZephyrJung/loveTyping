@@ -24,7 +24,7 @@ local function hslToRgb(hue)
     elseif hue < math.pi * 2 / 3 then return xVal + m, cVal + m, m
     elseif hue < math.pi then return m, cVal + m, xVal + m
     elseif hue < math.pi * 4 / 3 then return m, xVal + m, cVal + m
-    elseif hue < math.pi * 5 / 3 then return xVal + m, m, cVal + m
+    elseif hue < math.pi * 5 / 3 then return m, xVal + m, cVal + m
     else return cVal + m, m, xVal + m end
 end
 
@@ -102,7 +102,7 @@ function Sphere:new(letter, x, y)
     s.scale = 1
     s.alive = true
 
-         -- Map letter A(0)..Y(25) to RGB via HSL hue angle for unique coloring.
+          -- Map letter A(0)..Y(25) to RGB via HSL hue angle for unique coloring.
     local hueFrac = (string.byte(letter) - string.byte('A')) / 25
     local r, g, b = hslToRgb(hueFrac * math.pi * 2)
     s.glowColor = {r, g, b}
@@ -119,38 +119,38 @@ function Sphere:draw()
     local pulse = math.sin(self.pulsePhase) * 0.15 + 1
     local gc = self.glowColor
 
-         -- Outer glow aura (two layers for soft falloff)
+          -- Outer glow aura (two layers for soft falloff)
     love.graphics.setColor(gc[1] * 0.5, gc[2] * 0.5, gc[3] * 0.5, 0.10 * self.opacity)
     love.graphics.circle("fill", self.x, self.y, self.glowRadius * pulse + 18)
     love.graphics.setColor(gc[1] * 0.6, gc[2] * 0.6, gc[3] * 0.6, 0.20 * self.opacity)
     love.graphics.circle("fill", self.x, self.y, self.glowRadius * pulse)
 
-         -- Sphere body with 3D shading (offset shadow for depth)
+          -- Sphere body with 3D shading (offset shadow for depth)
     local sr = self.radius * pulse
     love.graphics.setColor(0.12, 0.12, 0.22, self.opacity)
     love.graphics.circle("fill", self.x + 3, self.y + 3, sr)
 
-         -- Main fill (lighter top-left for gradient feel)
+          -- Main fill (lighter top-left for gradient feel)
     local bright = self.glowColor[1] * 0.4 + 0.15
     local bgCol = self.glowColor[2] * 0.4 + 0.15
     local bb = self.glowColor[3] * 0.4 + 0.15
     love.graphics.setColor(bright, bgCol, bb, self.opacity)
     love.graphics.circle("fill", self.x - sr * 0.12, self.y - sr * 0.15, sr * 0.92)
 
-         -- Specular highlight dot (top-left of sphere)
+          -- Specular highlight dot (top-left of sphere)
     local hlR = sr * 0.35
     love.graphics.setColor(1, 1, 1, 0.45 * self.opacity)
     love.graphics.circle("fill", self.x - sr * 0.28, self.y - sr * 0.32, hlR)
 
-         -- Colored border ring
+          -- Colored border ring
     love.graphics.setLineWidth(1.5)
     love.graphics.setColor(gc[1] * 0.7, gc[2] * 0.7, gc[3] * 0.7, 0.50 * self.opacity)
-     -- circle outline for sphere border effect (supported in LOVE 11+)
+      -- circle outline for sphere border effect (supported in LOVE 11+)
     love.graphics.setLineWidth(2.5)
     love.graphics.circle("line", self.x, self.y, sr - 1)
     love.graphics.setLineWidth(1)
 
-         -- Letter label with drop shadow for readability
+          -- Letter label with drop shadow for readability
     local fontSize = math.floor(sr * 1.0)
     local font = love.graphics.newFont(fontSize)
     love.graphics.setFont(font)
@@ -170,20 +170,20 @@ end
 local function getKeyboardLayout(cx, cy)
     local layout = {}
     local rows = {
-             {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
-             {"A", "S", "D", "F", "G", "H", "J", "K", "L"},
-             {"Z", "X", "C", "V", "B", "N", "M"}
-        }
+              {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
+              {"A", "S", "D", "F", "G", "H", "J", "K", "L"},
+              {"Z", "X", "C", "V", "B", "N", "M"}
+         }
     local spacingY = 90
 
     for i, row in ipairs(rows) do
         local rowsY = cy + (i - 1) * spacingY - 90
         local colsInRow = #row
         for j, letter in ipairs(row) do
-                 -- Distribute evenly with slight inward arc at edges
+                  -- Distribute evenly with slight inward arc at edges
             local colX = cx + (j - (colsInRow + 1) / 2) * 64
             local arcAmt = math.abs(j - (colsInRow + 1) / 2)
-                         / ((colsInRow + 1) / 2)
+                          / ((colsInRow + 1) / 2)
             colX = colX - arcAmt * 6
 
             table.insert(layout, {letter = letter, x = colX, y = rowsY})
@@ -197,7 +197,7 @@ end
 --------------------------------------------------------------------------------
 
 states = {} -- name -> state object with update/draw methods
-currentStateName = nil             -- read/written by changeState + main.lua
+currentStateName = nil              -- read/written by changeState + main.lua
 
 --- Switch to a named state; calls onExit of old and onEnter of new.
 local function changeState(name)
@@ -208,6 +208,22 @@ local function changeState(name)
     if states[name] and states[name].onEnter then
         states[name].onEnter(states[name])
     end
+end
+
+--------------------------------------------------------------------------------
+-- Responsive layout: scale values relative to a 960x700 design baseline.
+-- Call screenScale(v) to get the value for the current screen dimensions.
+-- On portrait screens, scales against width (the limiting dimension);
+-- on landscape, uses height so tall UI elements don't overflow.
+--------------------------------------------------------------------------------
+
+_G.screenScale = function(v)
+    local w = love.graphics.getWidth()
+    local h = love.graphics.getHeight()
+    local scaleX = (w - 40) / 960     -- 960 design baseline, 40px margin budget
+    local scaleY = (h - 80) / 700     -- 700 design baseline, 80px margin budget
+    if h > w then return v * math.max(0.35, scaleX) end
+    return v * math.min(scaleX, scaleY)
 end
 
 --------------------------------------------------------------------------------
@@ -233,7 +249,7 @@ _G.hslToRgb = hslToRgb
 _G.Particle = Particle
 _G.Sphere = Sphere
 _G.getKeyboardLayout = getKeyboardLayout
-_G.currentStateName = currentStateName  -- read-only reference
+_G.currentStateName = currentStateName   -- read-only reference
 _G.changeState = changeState
 _G.addExplosion = addExplosion
 
